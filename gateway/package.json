@@ -1,0 +1,30 @@
+{
+  "name": "oss-codex-gateway",
+  "version": "0.1.0",
+  "description": "Local inference gateway for Codexz (VS Code). Routes completion/edit/chat to model runtimes.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "dev": "nodemon --ext js --watch . server.js",
+    "start": "node server.js",
+    "lint": "eslint .",
+    "format": "prettier -w .",
+    "check": "node -e \"require('fs').accessSync('server.js')\" && echo OK"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "eslint": "^9.9.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "nodemon": "^3.1.4",
+    "prettier": "^3.3.3"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "license": "Apache-2.0"
+}
