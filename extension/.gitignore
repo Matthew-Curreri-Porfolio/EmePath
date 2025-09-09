@@ -1,0 +1,20 @@
+.vscode
+*.vsix
+
+/net-commander
+# Node.js
+/node_modules/
+/dist/
+.env
+
+# Python
+__pycache__/
+*.pyc
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
