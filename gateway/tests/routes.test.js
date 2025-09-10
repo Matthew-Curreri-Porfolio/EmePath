@@ -1,4 +1,4 @@
-// gateway/test/routes.test.js
+// gateway/tests/routes.test.js
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 
 import request from 'supertest';
