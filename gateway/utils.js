@@ -74,17 +74,18 @@ export function scanDirectory(root, maxFileSize = 262144) {
 }
 
 export function makeSnippets(text, terms) {
+  if (!terms.length) return [];
   const snippets = [];
-  for (const t of terms) {
-    const rx = new RegExp(`\\b${escapeRe(t)}\\b`, 'gi');
-    let m;
-    while ((m = rx.exec(text)) !== null) {
-      const start = Math.max(0, m.index - 15);
-      const end = Math.min(text.length, m.index + t.length + 15);
-      snippets.push(text.slice(start, end));
-    }
+  const searchRx = new RegExp(`\\b(${terms.map(escapeRe).join('|')})\\b`, 'gi');
+  let m;
+  while ((m = searchRx.exec(text)) !== null) {
+    const start = Math.max(0, m.index - 25);
+    const end = Math.min(text.length, m.index + m[0].length + 25);
+    const snippet = text.slice(start, end);
+    snippets.push(snippet);
   }
-  return snippets;
+  // Dedupe and limit snippets
+  return [...new Set(snippets)].slice(0, 5);
 }
 
 const DEFAULT_GITIGNORE = `

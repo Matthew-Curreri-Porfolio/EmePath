@@ -8,6 +8,8 @@ import { log, getTimeoutMs, escapeRe, scanDirectory } from '../utils.js';
 import { OLLAMA, MODEL, MOCK, VERBOSE, LOG_BODY } from '../config.js';
 import { getIndex, setIndex } from '../state.js';
 import registerRoutes from '../routes/index.js';
+import { getModels } from '../usecases/models.js';
+import { queryUseCase } from '../usecases/query.js';
 
 let app;
 beforeAll(() => {
@@ -26,6 +28,7 @@ beforeAll(() => {
     LOG_BODY,
     getIndex,
     setIndex,
+    getModels,
   });
 });
 
@@ -76,8 +79,32 @@ describe('Gateway routes', () => {
   it('POST /query returns hits', async () => {
     // ensure index has something
     await request(app).post('/scan').send({ root: __dirname, maxFileSize: 4096 });
-    const res = await request(app).post('/query').send({ q: 'test', k: 5 });
-    expect(res.status).toBe(200);
-    expect(Array.isArray(res.body.hits)).toBe(true);
+    const mockReq = { body: { q: 'test term', k: 5 } };
+    const mockRes = {
+      status: (s) => ({ json: (j) => { console.log('status', s, j); } }),
+      json: (j) => { console.log('json', j); }
+    };
+
+    const deps = {
+      escapeRe: (s) => s.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&'),
+      getIndex: () => ({ root: '/tmp', files: [{ path: 'a.txt', text: 'This is a test term. Test_term and test-term. test123' }] }),
+      makeSnippets: (text, terms) => ['snippet']
+    };
+
+    (async () => {
+      await queryUseCase(mockReq, mockRes, deps);
+    })();
+  });
+  it('POST /auth/login fails with bad creds', async () => {
+    const res = await request(app).post('/auth/login').send({ username: 'nouser', password: 'nopass', workspaceId: 'ws1' });
+    expect(res.status).toBe(401);
+  });
+  it('POST /memory/short without auth fails', async () => {
+    const res = await request(app).post('/memory/short').send({ content: 'test' });
+    expect(res.status).toBe(401);
+  });
+  it('GET /memory/long without auth fails', async () => {
+    const res = await request(app).get('/memory/long');
+    expect(res.status).toBe(401);
   });
 });

@@ -1,13 +1,20 @@
 import path from 'path';
 import fs from 'fs';
 import Database from 'better-sqlite3';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const isTest = process.env.NODE_ENV === 'test';
 
 let db;
-const DB_PATH = isTest ? ':memory:' : path.resolve(process.cwd(), 'gateway', 'db', 'app.db');
-const MIGRATIONS_DIR = path.resolve(process.cwd(), 'gateway', 'db', 'migrations');
-fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+const DB_PATH = isTest ? ':memory:' : path.resolve(__dirname, 'app.db');
+const MIGRATIONS_DIR = path.resolve(__dirname, 'migrations');
+
+if (!isTest) {
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+}
 
 // Open database
 if (isTest) {
@@ -28,20 +35,23 @@ for (const file of migrationFiles) {
 
 function run(sql, params = []) {
   try {
-    const stmt = db.prepare(sql);
-    const info = stmt.run(params);
+  const stmt = db.prepare(sql);
+  // better-sqlite3 expects parameters as separate args, not a single array
+  const info = stmt.run(...params);
     return info;
   } catch (err) {
-    throw err;
+  console.error('DB run error:', err, { sql, params });
+  throw err;
   }
 }
 function get(sql, params = []) {
   try {
-    const stmt = db.prepare(sql);
-    const row = stmt.get(params);
+  const stmt = db.prepare(sql);
+  const row = stmt.get(...params);
     return row;
   } catch (err) {
-    throw err;
+  console.error('DB get error:', err, { sql, params });
+  throw err;
   }
 }
 

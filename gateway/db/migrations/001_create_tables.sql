@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS short_term_memory (
   workspace_id TEXT NOT NULL,
   content TEXT NOT NULL,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY(user_id) REFERENCES users(id)
+  FOREIGN KEY(user_id) REFERENCES users(id),
+  UNIQUE(user_id, workspace_id)
 );
 
 CREATE TABLE IF NOT EXISTS long_term_memory (
@@ -22,5 +23,6 @@ CREATE TABLE IF NOT EXISTS long_term_memory (
   workspace_id TEXT NOT NULL,
   content TEXT NOT NULL,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY(user_id) REFERENCES users(id)
+  FOREIGN KEY(user_id) REFERENCES users(id),
+  UNIQUE(user_id, workspace_id)
 );
