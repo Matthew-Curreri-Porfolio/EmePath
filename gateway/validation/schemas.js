@@ -1,0 +1,43 @@
+import { z } from "zod";
+
+export const ChatSchema = z.object({
+  model: z.string().optional(),
+  timeoutMs: z.number().int().positive().max(600000).optional(),
+  messages: z.array(z.object({
+    role: z.enum(["system","user","assistant"]),
+    content: z.string().min(1)
+  })).min(1)
+});
+
+export const CompleteSchema = z.object({
+  language: z.string(),
+  prefix: z.string(),
+  suffix: z.string(),
+  path: z.string().optional(),
+  cursor: z.any().optional(),
+  budgetMs: z.number().int().positive().optional(),
+  timeoutMs: z.number().int().positive().optional()
+});
+
+export const ScanSchema = z.object({
+  root: z.string().min(1),
+  maxFileSize: z.number().int().positive().max(2_000_000).optional()
+});
+
+export const QuerySchema = z.object({
+  q: z.string().min(1),
+  k: z.number().int().positive().max(50).optional()
+});
+
+export const WarmupSchema = z.object({
+  model: z.string().min(1),
+  keepAlive: z.string().optional(),
+  timeoutMs: z.number().int().positive().optional()
+});
+
+// Memory: write/append/clear with tiny separator
+export const MemoryWriteSchema = z.object({
+  content: z.string().default(""),
+  mode: z.enum(["set","append","clear"]).default("set"),
+  separator: z.string().max(2).optional()
+});

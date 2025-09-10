@@ -3,5 +3,5 @@ npm-debug.log*
 .DS_Store
 .env
 *.log
-
+*.sh
 /net-commander

@@ -19,7 +19,7 @@ import { memoryShortUseCase, memoryLongUseCase } from "../usecases/memory.js";
 import { getModels } from "../usecases/models.js";
 
 import { validate } from "../middleware/validate.js";
-import { ChatSchema, CompleteSchema, ScanSchema, QuerySchema, WarmupSchema, MemoryWriteSchema } from "../validation/schemas.js";
+import { ChatSchema, CompleteSchema, ScanSchema, QuerySchema, WarmupSchema } from "../validation/schemas.js";
 
 export default function registerRoutes(app, deps) {
   const {
@@ -60,7 +60,6 @@ export default function registerRoutes(app, deps) {
   });
 
   const chatLimiter = rateLimit({ windowMs: 60_000, max: 30 });
-  const memoryLimiter = rateLimit({ windowMs: 60_000, max: 60 });
 
   // Liveness
   app.get("/health", (_req, res) =>
@@ -127,26 +126,26 @@ export default function registerRoutes(app, deps) {
     await queryUseCase(req, res, deps);
   });
 
-  // Auth
+  // Auth and memory routes
   app.post("/auth/login", async (req, res) => {
     await loginUseCase(req, res, deps);
   });
 
-  // Memory (short)
-  app.post("/memory/short", requireAuth, memoryLimiter, validate(MemoryWriteSchema), async (req, res) => {
+  app.post("/memory/short", requireAuth, async (req, res) => {
     await memoryShortUseCase(req, res, deps);
   });
+
   app.get("/memory/short", requireAuth, async (req, res) => {
     const content = db.getShortTerm(req.session.userId, req.session.workspaceId);
-    res.json({ content, bytes: Buffer.byteLength(content || '', 'utf8') });
+    res.json({ content });
   });
 
-  // Memory (long)
-  app.post("/memory/long", requireAuth, memoryLimiter, validate(MemoryWriteSchema), async (req, res) => {
+  app.post("/memory/long", requireAuth, async (req, res) => {
     await memoryLongUseCase(req, res, deps);
   });
+
   app.get("/memory/long", requireAuth, async (req, res) => {
     const content = db.getLongTerm(req.session.userId, req.session.workspaceId);
-    res.json({ content, bytes: Buffer.byteLength(content || '', 'utf8') });
+    res.json({ content });
   });
 }
