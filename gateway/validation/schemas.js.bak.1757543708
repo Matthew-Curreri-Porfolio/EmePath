@@ -35,25 +35,9 @@ export const WarmupSchema = z.object({
   timeoutMs: z.number().int().positive().optional()
 });
 
+// Memory: write/append/clear with tiny separator
 export const MemoryWriteSchema = z.object({
-  memid: z.string().min(1).optional(),
   content: z.string().default(""),
   mode: z.enum(["set","append","clear"]).default("set"),
   separator: z.string().max(2).optional()
-});
-
-// Training: full replace (PUT) and shallow merge (PATCH)
-export const TrainingPutSchema = z.object({
-  trainid: z.string().min(1).optional(),
-  data: z.record(z.any())
-});
-
-export const TrainingPatchSchema = z.object({
-  data: z.record(z.any())
-});
-
-export const TrainingBuildSchema = z.object({
-  includeShort: z.boolean().optional(),
-  includeLong: z.boolean().optional(),
-  tags: z.array(z.string()).optional()
 });

@@ -1,0 +1,152 @@
+// gateway/routes/index.js
+// Registers all route handlers with the Express app.
+
+import helmet from "helmet";
+import compression from "compression";
+import rateLimit from "express-rate-limit";
+import * as prom from "prom-client";
+import { randomUUID } from "crypto";
+
+import db from "../db/db.js";
+import { completeUseCase } from "../usecases/complete.js";
+import { chatUseCase } from "../usecases/chat.js";
+import { chatStreamUseCase } from "../usecases/chatStream.js";
+import { warmupUseCase } from "../usecases/warmup.js";
+import { scanUseCase } from "../usecases/scan.js";
+import { queryUseCase } from "../usecases/query.js";
+import { loginUseCase, requireAuth } from "../usecases/auth.js";
+import { memoryShortUseCase, memoryLongUseCase } from "../usecases/memory.js";
+import { getModels } from "../usecases/models.js";
+
+import { validate } from "../middleware/validate.js";
+import { ChatSchema, CompleteSchema, ScanSchema, QuerySchema, WarmupSchema, MemoryWriteSchema } from "../validation/schemas.js";
+
+export default function registerRoutes(app, deps) {
+  const {
+    log,
+    getTimeoutMs,
+    OLLAMA,
+    MODEL,
+    MOCK,
+    getIndex,
+    setIndex,
+  } = deps;
+
+  // Security & performance
+  app.use(helmet());
+  app.use(compression());
+
+  // Prometheus metrics
+  prom.collectDefaultMetrics();
+  const httpMs = new prom.Histogram({
+    name: "http_request_duration_ms",
+    help: "HTTP request duration (ms)",
+    labelNames: ["route", "method", "status"],
+    buckets: [50,100,200,500,1000,2000,5000,10000]
+  });
+
+  // Request ID + latency logging
+  app.use((req, res, next) => {
+    req.id = randomUUID();
+    res.setHeader("X-Request-Id", req.id);
+    const t0 = Date.now();
+    res.on("finish", () => {
+      const routeLabel = req.route?.path || req.path;
+      const dur = Date.now() - t0;
+      httpMs.labels(routeLabel, req.method, String(res.statusCode)).observe(dur);
+      if (typeof log === "function") log("req", { id:req.id, m:req.method, p:req.path, s:res.statusCode, ms:dur });
+    });
+    next();
+  });
+
+  const chatLimiter = rateLimit({ windowMs: 60_000, max: 30 });
+  const memoryLimiter = rateLimit({ windowMs: 60_000, max: 60 });
+
+  // Liveness
+  app.get("/health", (_req, res) =>
+    res.json({
+      ok: true,
+      mock: MOCK,
+      model: MODEL,
+      ollama: OLLAMA,
+      timeoutMs: getTimeoutMs(),
+      pid: process.pid,
+    })
+  );
+
+  // Readiness (checks upstream Ollama quickly)
+  app.get("/ready", async (_req, res) => {
+    const base = String(OLLAMA || "").replace(/\/$/, "");
+    try {
+      const r = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(3000) });
+      return res.status(r.ok ? 200 : 503).json({ ok: r.ok, upstream: "ollama", status: r.status });
+    } catch (e) {
+      return res.status(503).json({ ok:false, error: (e && e.message) || String(e) });
+    }
+  });
+
+  // Prometheus scrape endpoint
+  app.get("/metrics", async (_req, res) => {
+    res.set("Content-Type", prom.register.contentType);
+    res.end(await prom.register.metrics());
+  });
+
+  // Complete
+  app.post("/complete", validate(CompleteSchema), async (req, res) => {
+    await completeUseCase(req, res, deps);
+  });
+
+  // Chat
+  app.post("/chat", chatLimiter, validate(ChatSchema), async (req, res) => {
+    await chatUseCase(req, res, deps);
+  });
+
+  // Chat stream (SSE)
+  app.post("/chat/stream", chatLimiter, validate(ChatSchema), async (req, res) => {
+    await chatStreamUseCase(req, res, deps);
+  });
+
+  // Models list
+  app.get("/models", async (_req, res) => {
+    const models = await getModels();
+    res.json({ models });
+  });
+
+  // Warmup
+  app.post("/warmup", validate(WarmupSchema), async (req, res) => {
+    await warmupUseCase(req, res, deps);
+  });
+
+  // Scan
+  app.post("/scan", validate(ScanSchema), async (req, res) => {
+    await scanUseCase(req, res, deps);
+  });
+
+  // Query
+  app.post("/query", validate(QuerySchema), async (req, res) => {
+    await queryUseCase(req, res, deps);
+  });
+
+  // Auth
+  app.post("/auth/login", async (req, res) => {
+    await loginUseCase(req, res, deps);
+  });
+
+  // Memory (short)
+  app.post("/memory/short", requireAuth, memoryLimiter, validate(MemoryWriteSchema), async (req, res) => {
+    await memoryShortUseCase(req, res, deps);
+  });
+  app.get("/memory/short", requireAuth, async (req, res) => {
+    const content = db.getShortTerm(req.session.userId, req.session.workspaceId);
+    res.json({ content, bytes: Buffer.byteLength(content || '', 'utf8') });
+  });
+
+  // Memory (long)
+  app.post("/memory/long", requireAuth, memoryLimiter, validate(MemoryWriteSchema), async (req, res) => {
+    await memoryLongUseCase(req, res, deps);
+  });
+  app.get("/memory/long", requireAuth, async (req, res) => {
+    const content = db.getLongTerm(req.session.userId, req.session.workspaceId);
+    res.json({ content, bytes: Buffer.byteLength(content || '', 'utf8') });
+  });
+}

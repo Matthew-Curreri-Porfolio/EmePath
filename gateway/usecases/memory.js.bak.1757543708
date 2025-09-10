@@ -1,0 +1,71 @@
+// gateway/usecases/memory.js
+import db from '../db/db.js';
+
+const MAX_SHORT = 64 * 1024;   // 64 KB
+const MAX_LONG  = 512 * 1024;  // 512 KB
+
+function ensureAuth(req, res) {
+  const userId = req.session?.userId;
+  const workspaceId = req.session?.workspaceId;
+  if (!userId || !workspaceId) {
+    res.status(401).json({ ok:false, error: 'unauthorized' });
+    return null;
+  }
+  return { userId, workspaceId };
+}
+
+function buildNext(current, mode, content, separator) {
+  if (mode === 'clear') return '';
+  if (mode === 'append') return current ? current + (separator ?? '\n') + content : content;
+  return content; // set
+}
+
+function within(limit, str) {
+  const bytes = Buffer.byteLength(str || '', 'utf8');
+  return { ok: bytes <= limit, bytes };
+}
+
+export async function memoryShortUseCase(req, res, deps) {
+  const auth = ensureAuth(req, res); if (!auth) return;
+  const { log } = deps;
+  const { content = '', mode = 'set', separator } = req.body || {};
+  if (typeof content !== 'string') return res.status(400).json({ ok:false, error:'content must be string' });
+
+  const current = db.getShortTerm(auth.userId, auth.workspaceId) || '';
+  const next = buildNext(current, mode, content, separator);
+  const cap = within(MAX_SHORT, next);
+  if (!cap.ok) return res.status(413).json({ ok:false, error:'short memory limit exceeded', bytes:cap.bytes, max:MAX_SHORT });
+
+  db.setShortTerm(auth.userId, auth.workspaceId, next);
+  if (log) log('memory.short', { userId: auth.userId, ws: auth.workspaceId, mode, bytes: cap.bytes });
+  return res.json({ ok:true, mode, bytes: cap.bytes, preview: next.slice(-256) });
+}
+
+export async function memoryLongUseCase(req, res, deps) {
+  const auth = ensureAuth(req, res); if (!auth) return;
+  const { log } = deps;
+  const { content = '', mode = 'set', separator } = req.body || {};
+  if (typeof content !== 'string') return res.status(400).json({ ok:false, error:'content must be string' });
+
+  const current = db.getLongTerm(auth.userId, auth.workspaceId) || '';
+  const next = buildNext(current, mode, content, separator);
+  const cap = within(MAX_LONG, next);
+  if (!cap.ok) return res.status(413).json({ ok:false, error:'long memory limit exceeded', bytes:cap.bytes, max:MAX_LONG });
+
+  db.setLongTerm(auth.userId, auth.workspaceId, next);
+  if (log) log('memory.long', { userId: auth.userId, ws: auth.workspaceId, mode, bytes: cap.bytes });
+  return res.json({ ok:true, mode, bytes: cap.bytes, preview: next.slice(-256) });
+}
+
+export async function memoryRetrieveShortTerm(userId, workspaceId) {
+  return db.getShortTerm(userId, workspaceId);
+}
+export async function memoryRetrieveLongTerm(userId, workspaceId) {
+  return db.getLongTerm(userId, workspaceId);
+}
+export async function memoryClearShortTerm(userId, workspaceId) {
+  db.setShortTerm(userId, workspaceId, '');
+}
+export async function memoryClearLongTerm(userId, workspaceId) {
+  db.setLongTerm(userId, workspaceId, '');
+}
