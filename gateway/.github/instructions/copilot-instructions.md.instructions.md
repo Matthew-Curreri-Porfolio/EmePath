@@ -1,36 +1,6 @@
+---
 applyTo: '**'
 ---
-Provide project context and coding guidelines that AI should follow when generating code, answering questions, or reviewing changes.
-
-# Always Remember
-
-You are being queried by **GitHub Copilot (Agent Mode)** inside VS Code. The agent may call **MCP servers** (Model Context Protocol) to access tools and data. MCP lets clients (Copilot) connect to servers that expose **tools**, **resources**, and **prompts**. Tools must be explicitly enabled; the agent should list and use only the tools configured for this workspace.  And always reply to user input in the chat.  Even if they are wrong.  If you have been working for a while check in with the user to ensure you are on the right track.
-
-## Tool Invocation Grammar (Deterministic)
-
-Prefer natural language, but when precision matters use this command syntax in chat:
-
-/tool <server>:<tool> {json}
-
-- <server> = the MCP server id (e.g., github, fetch, fs, pylance, langserver, search)
-- <tool>   = the concrete action exposed by that server (e.g., readFile, writeFile, search, fetch, references, definition, rename)
-- {json}   = parameters required by the tool, strictly valid JSON
-
-### Examples
-/tool fs:readFile {"path":"./src/app.ts"}
-/tool fs:writeFile {"path":"./.env","content":"KEY=VALUE\n","overwrite":false}
-/tool fetch:get {"url":"https://example.com/spec.json","headers":{"Accept":"application/json"}}
-/tool search:code {"query":"createServer(", "paths":["./src"]}
-/tool github:listIssues {"repo":"org/repo","state":"open","labels":["bug"]}
-/tool langserver:references {"uri":"file:///workspace/src/app.ts","position":{"line":42,"character":5}}
-/tool langserver:rename {"uri":"file:///workspace/src/app.ts","position":{"line":42,"character":5},"newName":"startServer"}
-
-If a tool is not available, ask the user to enable the MCP server or add it to **mcp.json**, then retry. (Copilot Agent supports adding/using MCP servers and letting the user pick tools in the **Select tools** panel.)
-
----
-
-# What Tools Are Expected (if enabled) — With Call Examples
-
 ## ✅ Built-In Tools
 
 - **changes** — Get diffs of changed files  
@@ -463,4 +433,4 @@ Webview CSP is strict: only inline styles and the single nonce’d script, and o
 ALWAYS USE ABSOLUTE PATHS WHEN CALLING TOOLS.
 Never use relative paths like `./file.js` or `../file.js` in tool calls; always use absolute paths from the workspace root like `/src/file.js`. This avoids ambiguity and ensures the agent accesses the correct files regardless of its current working directory.
 
-Keep the user informed on what you are doing especially if you haven't prompted them in a while.  Never be affraid to ask the user for clarification if you are unsure about something or your current path is taking too long.
+Keep the user informed on what you are doing especially if you haven't prompted them in a while.  Never be afraid to ask the user for clarification if you are unsure about something or your current path is taking too long.

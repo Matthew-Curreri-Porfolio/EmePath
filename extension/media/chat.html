@@ -6,20 +6,139 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Codexz Chat</title>
 <style>
-  body { font-family: system-ui, sans-serif; margin: 0; background: #0f111a; color: #e6e6e6; }
-  #wrap { display: grid; grid-template-rows: auto 1fr auto; height: 100vh; }
-  #hdr { padding: 8px 12px; border-bottom: 1px solid #2a2f45; color:#a0a8c0; font-size:12px; }
-  #msgs { padding: 12px; overflow-y: auto; }
-  .msg { margin: 8px 0; padding: 10px 12px; border-radius: 10px; max-width: 80%; white-space: pre-wrap; }
-  .user { background: #1b1e2b; margin-left: 20%; }
-  .assistant { background: #13151f; border: 1px solid #2a2f45; margin-right: 20%; }
-  #input { display:flex; gap:8px; padding: 10px; border-top: 1px solid #2a2f45; }
-  #text { flex:1; resize:none; height:60px; background:#0b0d16; color:#e6e6e6; border:1px solid #2a2f45; border-radius:8px; padding:8px; }
-  button { background:#3b82f6; color:#fff; border:0; padding:8px 14px; border-radius:8px; cursor:pointer; }
-  button:disabled { opacity:.6; cursor:wait; }
-  select { background:#0b0d16; color:#e6e6e6; border:1px solid #2a2f45; border-radius:6px; padding:4px 6px; }
-  .row { display:flex; gap:8px; align-items:center; margin-top:6px; flex-wrap: wrap; }
-  label.inline { display:flex; align-items:center; gap:6px; margin-left:8px; }
+  body {
+    font-family: 'Segoe UI', 'Fira Sans', 'system-ui', sans-serif;
+    margin: 0;
+    background: #181a20;
+    color: #e6e6e6;
+    letter-spacing: 0.01em;
+  }
+  #wrap {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    height: 100vh;
+    max-width: 700px;
+    margin: 0 auto;
+    box-shadow: 0 2px 16px 0 #000a;
+    border-radius: 14px;
+    background: #1b1e24;
+    border: 1px solid #23263a;
+  }
+  #hdr {
+    padding: 14px 20px 8px 20px;
+    border-bottom: 1px solid #23263a;
+    color: #a0a8c0;
+    font-size: 13px;
+    background: #181a20;
+    border-top-left-radius: 14px;
+    border-top-right-radius: 14px;
+  }
+  #msgs {
+    padding: 18px 20px;
+    overflow-y: auto;
+    background: #1b1e24;
+  }
+  .msg {
+    margin: 12px 0;
+    padding: 14px 18px;
+    border-radius: 12px;
+    max-width: 80%;
+    white-space: pre-wrap;
+    font-size: 15px;
+    box-shadow: 0 1px 6px 0 #0002;
+    transition: background 0.2s;
+  }
+  .user {
+    background: linear-gradient(90deg, #23263a 60%, #1b1e2b 100%);
+    margin-left: 20%;
+    border: 1px solid #23263a;
+  }
+  .assistant {
+    background: linear-gradient(90deg, #23263a 60%, #13151f 100%);
+    border: 1px solid #23263a;
+    margin-right: 20%;
+  }
+  #input {
+    display: flex;
+    gap: 10px;
+    padding: 16px 20px;
+    border-top: 1px solid #23263a;
+    background: #181a20;
+    border-bottom-left-radius: 14px;
+    border-bottom-right-radius: 14px;
+  }
+  #text {
+    flex: 1;
+    resize: none;
+    height: 56px;
+    background: #23263a;
+    color: #e6e6e6;
+    border: 1px solid #2a2f45;
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 15px;
+    box-shadow: 0 1px 4px 0 #0002;
+    transition: border 0.2s;
+  }
+  #text:focus {
+    border: 1.5px solid #3b82f6;
+    outline: none;
+  }
+  button {
+    background: linear-gradient(90deg, #3b82f6 80%, #2563eb 100%);
+    color: #fff;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 500;
+    box-shadow: 0 1px 4px 0 #0002;
+    transition: background 0.2s, box-shadow 0.2s;
+  }
+  button:disabled {
+    opacity: .6;
+    cursor: wait;
+  }
+  button#refresh, button#scan, button#term {
+    background: #23263a;
+    color: #e6e6e6;
+    border: 1px solid #2a2f45;
+    font-size: 14px;
+    padding: 8px 12px;
+    box-shadow: none;
+  }
+  button#load {
+    background: linear-gradient(90deg, #16a34a 80%, #22c55e 100%);
+    color: #fff;
+    border: none;
+    font-size: 14px;
+    padding: 8px 14px;
+  }
+  select {
+    background: #23263a;
+    color: #e6e6e6;
+    border: 1px solid #2a2f45;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 14px;
+    margin-right: 4px;
+  }
+  .row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  label.inline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: 10px;
+    font-size: 13px;
+    color: #a0a8c0;
+  }
 </style>
 </head>
 <body>
@@ -34,6 +153,7 @@
       <label class="inline"><input type="checkbox" id="useCtx" /> Use repo context</label>
       <button id="scan" title="Scan workspace" style="background:#2a2f45;color:#e6e6e6;">Scan</button>
       <button id="term" title="Open terminal" style="background:#2a2f45;color:#e6e6e6;">Terminal</button>
+      <label class="inline"><input type="checkbox" id="useStream" /> Use streaming</label>
     </div>
   </div>
 
@@ -60,6 +180,8 @@ const loadBtn = document.getElementById('load');
 const useCtxEl = document.getElementById('useCtx');
 const scanBtn  = document.getElementById('scan');
 const termBtn  = document.getElementById('term');
+
+const useStreamEl = document.getElementById('useStream');
 
 document.getElementById('gw').textContent = GATEWAY;
 
@@ -208,21 +330,58 @@ async function send() {
       }
     }
 
-    const r = await fetch(GATEWAY + "/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        messages: messagesPayload,
-        model: currentModel || undefined,
-        timeoutMs: 120000,
-        keepAlive: "2h"
-      })
-    });
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    const data = await r.json();
-    const reply = data?.message?.content || "";
-    messages.push({ role:"assistant", content: reply });
-pushAssistantRich(reply);
+    if (useStreamEl.checked) {
+      const r = await fetch(GATEWAY + "/chat/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: messagesPayload,
+          model: currentModel || undefined,
+          timeoutMs: 120000,
+          keepAlive: "2h"
+        })
+      });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      let fullReply = "";
+      const el = push("assistant", "");
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split("\n");
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const json = JSON.parse(line.slice(6));
+            if (json.done) break;
+            const content = json?.message?.content || "";
+            fullReply += content;
+            el.textContent = fullReply;
+            msgsEl.scrollTop = msgsEl.scrollHeight;
+          }
+        }
+      }
+      messages.push({ role:"assistant", content: fullReply });
+      pushAssistantRich(fullReply);
+    } else {
+      const r = await fetch(GATEWAY + "/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: messagesPayload,
+          model: currentModel || undefined,
+          timeoutMs: 120000,
+          keepAlive: "2h"
+        })
+      });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const data = await r.json();
+      const reply = data?.message?.content || "";
+      messages.push({ role:"assistant", content: reply });
+      pushAssistantRich(reply);
+    }
   } catch (e) {
     push("assistant", "⚠️ Error: " + (e.message || e));
   } finally {
@@ -242,34 +401,33 @@ function extractShellBlocks(text) {
 }
 
 function pushAssistantRich(content) {
-  // Plain text bubble
-  push("assistant", content);
-
   // For each bash block, render a runnable block
   const blocks = extractShellBlocks(content);
-  for (const code of blocks) {
-    const wrap = document.createElement('div');
-    wrap.className = 'msg assistant';
-    const pre = document.createElement('pre');
-    pre.style.margin = '8px 0';
-    pre.style.whiteSpace = 'pre-wrap';
-    pre.textContent = code;
+  if (blocks.length > 0) {
+    for (const code of blocks) {
+      const wrap = document.createElement('div');
+      wrap.className = 'msg assistant';
+      const pre = document.createElement('pre');
+      pre.style.margin = '8px 0';
+      pre.style.whiteSpace = 'pre-wrap';
+      pre.textContent = code;
 
-    const run = document.createElement('button');
-    run.textContent = 'Run in terminal';
-    run.style.marginTop = '6px';
-    run.style.background = '#2a2f45';
-    run.style.color = '#e6e6e6';
-    run.addEventListener('click', () => {
-      const ok = confirm('Run these commands in your workspace terminal?\n\n' + code);
-      if (!ok) return;
-      vscodeApi.postMessage({ type: 'runShell', code });
-    });
+      const run = document.createElement('button');
+      run.textContent = 'Run in terminal';
+      run.style.marginTop = '6px';
+      run.style.background = '#2a2f45';
+      run.style.color = '#e6e6e6';
+      run.addEventListener('click', () => {
+        const ok = confirm('Run these commands in your workspace terminal?\n\n' + code);
+        if (!ok) return;
+        vscodeApi.postMessage({ type: 'runShell', code });
+      });
 
-    wrap.appendChild(pre);
-    wrap.appendChild(run);
-    msgsEl.appendChild(wrap);
-    msgsEl.scrollTop = msgsEl.scrollHeight;
+      wrap.appendChild(pre);
+      wrap.appendChild(run);
+      msgsEl.appendChild(wrap);
+      msgsEl.scrollTop = msgsEl.scrollHeight;
+    }
   }
 }
 // init
