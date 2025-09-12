@@ -1,20 +1,11 @@
 {
-  "name": "oss-codex-root",
+  "name": "oss-codex",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "npm-run-all -p gateway:start extension:watch",
-    "gateway:start": "npm --prefix gateway run start",
-    "gateway:start:mock": "MOCK=1 npm --prefix gateway run start",
-    "gateway:start:gemma3": "MODEL=gemma3:12b npm --prefix gateway run start",
-    "extension:watch": "npm --prefix extension run watch",
-    "extension:build": "npm --prefix extension run build",
-    "indexer:start": "npm --prefix indexer run start",
-    "extension:devhost": "OSS_CODEX_GATEWAY=${OSS_CODEX_GATEWAY:-http://127.0.0.1:3030} code -n --disable-extensions --extensionDevelopmentPath=$(pwd)/extension --user-data-dir=$(pwd)/.vscode-devhost",
-    "extension:dev": "npm-run-all -p extension:watch extension:devhost",
-    "logs:gateway": "tail -f gateway/logs/gateway.log"
-  },
-  "devDependencies": {
-    "npm-run-all": "^4.1.5",
-    "supertest": "^7.1.4"
+    "curated:ingest:starter": "node gateway/scripts/ingest_starter_curated.mjs",
+    "curated:ingest:starter:bash": "bash gateway/scripts/ingest_starter_curated.sh",
+    "curated:search:test": "node gateway/scripts/test_curated_search.js"
   }
 }
+

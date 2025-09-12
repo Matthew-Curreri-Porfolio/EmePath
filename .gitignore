@@ -55,3 +55,5 @@ Thumbs.db
 
 # ───────────────── Project-specific ─────────────────
 /net-commander
+gateway/tools/curated/cache/*.jsonl
+gateway/tools/curated/cache/*.json

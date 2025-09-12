@@ -24,7 +24,7 @@ async function searchWhoogle(
 ) {
   const whoogleBase = base || process.env.WHOOGLE_BASE || 'http://127.0.0.1:5010';
   const q = site ? `${query} site:${site}` : query;
-  const params = new URLSearchParams({ q, num: String(num), hl: String(lang) });
+  const params = new URLSearchParams({ q, num: String(num), hl: String(lang), gbv: '1' });
   // Safe search: 'active' | 'off'
   params.set('safe', safe ? 'active' : 'off');
   // Freshness window: h/d/w/m/y -> qdr param
@@ -68,12 +68,25 @@ async function searchWhoogle(
     if (!href || /^https?:\/\/(127|localhost|localhost:|127.0.0.1)/i.test(href)) continue;
     // Filter out obvious non-result links
     if (/google\.com\/maps|whoogle-search|github\.com/gi.test(href)) continue;
+    if (/^https?:\/\/([^.]+\.)*google\./i.test(href)) continue;
 
     // Try to capture a short nearby snippet (within the next 300 chars)
     const tailHtml = searchArea.slice(Math.max(0, aRe.lastIndex - 300), aRe.lastIndex + 300);
     const snipMatch = /<p[^>]*>([\s\S]*?)<\/p>/i.exec(tailHtml) || /<div[^>]*class=[\"']?IsZvec[\"']?[^>]*>([\s\S]*?)<\/div>/i.exec(tailHtml);
     const snippet = stripTags(snipMatch ? snipMatch[1] : '');
     results.push({ rank: ++idx, title, url: href, snippet });
+  }
+
+  // Fallback: When gbv=1 layout is used, some Whoogle builds render result
+  // anchors with class "fuLhoc". Try to capture those if we still have none.
+  if (!results.length) {
+    const whoogleStyle = /<a[^>]*class=\"[^\"]*fuLhoc[^\"]*\"[^>]*href=\"(https?:\/\/[^\"]+)\"[^>]*>([\s\S]*?)<\/a>/gi;
+    let wm;
+    while ((wm = whoogleStyle.exec(searchArea)) && results.length < num) {
+      const href = wm[1];
+      const title = stripTags(wm[2]);
+      results.push({ rank: results.length + 1, title, url: href, snippet: '' });
+    }
   }
 
   if (!results.length) {
@@ -91,10 +104,51 @@ async function searchWhoogle(
         seen.add(u);
         // Skip internal or obvious non-result links
         if (/^(https?:\/\/)?(127|localhost)/i.test(u)) continue;
+        if (/^https?:\/\/([^.]+\.)*google\./i.test(u)) continue;
         results.push({ rank: results.length + 1, title: '', url: u, snippet: '' });
       } catch (e) {
         continue;
       }
+    }
+  }
+
+  // Additional fallbacks for Whoogle-specific link rewriting patterns.
+  // Some deployments rewrite result links as relative /search?… with an
+  // encoded target in either `uddg` or (less commonly) `q`.
+  if (!results.length) {
+    const addIfValid = (u) => {
+      try {
+        const dec = decodeURIComponent(u);
+        if (!/^https?:\/\//i.test(dec)) return;
+        if (/(^|\.)localhost(:\d+)?\//i.test(dec)) return;
+        if (/127\.0\.0\.1(:\d+)?\//.test(dec)) return;
+        results.push({ rank: results.length + 1, title: '', url: dec, snippet: '' });
+      } catch (_) { /* ignore */ }
+    };
+
+    // /search?…&uddg=https%3A%2F%2Fexample.com%2F…
+    const uddgRe = /href=\"\/search\?[^\"]*?uddg=([^&\"']+)/gi;
+    let um;
+    while ((um = uddgRe.exec(html)) && results.length < num) addIfValid(um[1]);
+
+    // /search?…&q=https%3A%2F%2Fexample.com%2F…
+    if (results.length < num) {
+      const qRe = /href=\"\/search\?[^\"]*?q=([^&\"']+)/gi;
+      let qm;
+      while ((qm = qRe.exec(html)) && results.length < num) addIfValid(qm[1]);
+    }
+  }
+
+  // As a last resort, scan for data-url/data-href style attributes that some
+  // templates embed on result cards.
+  if (!results.length) {
+    const dataAttrRe = /(data-url|data-href)=\"(https?:\/\/[^\"]+)\"/gi;
+    let dm;
+    while ((dm = dataAttrRe.exec(html)) && results.length < num) {
+      const href = dm[2];
+      if (!href) continue;
+      if (/localhost|127\.0\.0\.1/.test(href)) continue;
+      results.push({ rank: results.length + 1, title: '', url: href, snippet: '' });
     }
   }
 

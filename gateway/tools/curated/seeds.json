@@ -1,0 +1,22 @@
+{
+  "wikipedia": {
+    "lang": "en",
+    "pages": [
+      "Python_(programming_language)",
+      "Transformer_(machine_learning_model)",
+      "Large_language_model",
+      "Reinforcement_learning",
+      "Backpropagation"
+    ]
+  },
+  "mdn": { "limit": 30 },
+  "arxiv": [
+    { "query": "all:transformers", "limit": 15 },
+    { "query": "all:large+language+models", "limit": 15 }
+  ],
+  "pubmed": [
+    { "query": "diabetes+type+2", "limit": 15 },
+    { "query": "alzheimers+disease", "limit": 15 }
+  ]
+}
+

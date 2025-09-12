@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "0.1.0",
+  "updated": "2025-09-12",
+  "sources": [
+    {
+      "id": "wikipedia",
+      "name": "Wikipedia",
+      "domains": ["wikipedia.org"],
+      "category": "reference",
+      "license": "CC BY-SA",
+      "access": {
+        "method": "api",
+        "endpoints": [
+          "https://{lang}.wikipedia.org/w/api.php",
+          "https://{lang}.wikipedia.org/api/rest_v1"
+        ],
+        "params": { "format": "json" }
+      },
+      "cadence": "daily",
+      "enabled": true
+    },
+    {
+      "id": "wikidata",
+      "name": "Wikidata",
+      "domains": ["wikidata.org"],
+      "category": "reference",
+      "license": "CC BY-SA",
+      "access": {
+        "method": "api",
+        "endpoints": ["https://www.wikidata.org/w/api.php"],
+        "params": { "format": "json" }
+      },
+      "cadence": "daily",
+      "enabled": true
+    },
+    {
+      "id": "mdn",
+      "name": "MDN Web Docs",
+      "domains": ["developer.mozilla.org"],
+      "category": "software",
+      "license": "CC BY-SA",
+      "access": { "method": "sitemap", "endpoints": ["https://developer.mozilla.org/sitemaps.xml"] },
+      "cadence": "weekly",
+      "enabled": true
+    },
+    {
+      "id": "arxiv",
+      "name": "arXiv",
+      "domains": ["arxiv.org"],
+      "category": "science",
+      "license": "varies; abstracts index-safe",
+      "access": { "method": "api", "endpoints": ["https://export.arxiv.org/api/query"] },
+      "cadence": "hourly",
+      "enabled": true
+    },
+    {
+      "id": "pubmed",
+      "name": "PubMed",
+      "domains": ["ncbi.nlm.nih.gov"],
+      "category": "medicine",
+      "license": "abstracts PD-like; full text varies",
+      "access": { "method": "api", "endpoints": ["https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"] },
+      "cadence": "daily",
+      "enabled": true
+    },
+    {
+      "id": "plos",
+      "name": "PLOS",
+      "domains": ["journals.plos.org"],
+      "category": "science",
+      "license": "CC BY",
+      "access": { "method": "rss", "endpoints": ["https://journals.plos.org/plosone/rss"] },
+      "cadence": "daily",
+      "enabled": true
+    },
+    {
+      "id": "elife",
+      "name": "eLife",
+      "domains": ["elifesciences.org"],
+      "category": "science",
+      "license": "CC BY",
+      "access": { "method": "rss", "endpoints": ["https://elifesciences.org/rss/research-article.xml"] },
+      "cadence": "daily",
+      "enabled": true
+    },
+    {
+      "id": "worldbank",
+      "name": "World Bank Open Data",
+      "domains": ["worldbank.org", "api.worldbank.org"],
+      "category": "data",
+      "license": "CC BY 4.0",
+      "access": { "method": "api", "endpoints": ["https://api.worldbank.org/v2/"] },
+      "cadence": "weekly",
+      "enabled": true
+    },
+    {
+      "id": "owid",
+      "name": "Our World in Data",
+      "domains": ["ourworldindata.org"],
+      "category": "data",
+      "license": "CC BY 4.0",
+      "access": { "method": "html", "endpoints": ["https://ourworldindata.org/"] },
+      "cadence": "weekly",
+      "enabled": true
+    },
+    {
+      "id": "ietf_rfc",
+      "name": "IETF RFCs",
+      "domains": ["ietf.org", "rfc-editor.org"],
+      "category": "software",
+      "license": "IETF Trust terms",
+      "access": { "method": "html", "endpoints": ["https://www.rfc-editor.org/rfc/"] },
+      "cadence": "monthly",
+      "enabled": true
+    },
+    {
+      "id": "python_docs",
+      "name": "Python Docs",
+      "domains": ["docs.python.org"],
+      "category": "software",
+      "license": "PSF docs license",
+      "access": { "method": "sitemap", "endpoints": ["https://docs.python.org/3/sitemap.xml"] },
+      "cadence": "monthly",
+      "enabled": true
+    },
+    {
+      "id": "rust_docs",
+      "name": "Rust Docs",
+      "domains": ["doc.rust-lang.org"],
+      "category": "software",
+      "license": "Rust docs license",
+      "access": { "method": "html", "endpoints": ["https://doc.rust-lang.org/std/"] },
+      "cadence": "monthly",
+      "enabled": true
+    },
+    {
+      "id": "archwiki",
+      "name": "ArchWiki",
+      "domains": ["wiki.archlinux.org"],
+      "category": "software",
+      "license": "CC BY-SA",
+      "access": { "method": "sitemap", "endpoints": ["https://wiki.archlinux.org/sitemap.xml"] },
+      "cadence": "weekly",
+      "enabled": true
+    },
+    {
+      "id": "stackexchange",
+      "name": "Stack Exchange",
+      "domains": ["stackexchange.com", "stackoverflow.com"],
+      "category": "howto",
+      "license": "CC BY-SA 4.0 (attribution required)",
+      "access": { "method": "api", "endpoints": ["https://api.stackexchange.com/2.3/"] },
+      "cadence": "hourly",
+      "enabled": true,
+      "notes": "Store author, link, creation date for attribution"
+    },
+    {
+      "id": "wikihow",
+      "name": "wikiHow",
+      "domains": ["wikihow.com"],
+      "category": "howto",
+      "license": "CC BY-NC-SA",
+      "access": { "method": "sitemap", "endpoints": ["https://www.wikihow.com/Special:CreateSitemap?from=0&to=z"] },
+      "cadence": "weekly",
+      "enabled": false,
+      "notes": "Non-commercial; enable only if licensing aligns"
+    },
+    {
+      "id": "pl_public_law",
+      "name": "US Gov (govinfo / FR / CFR)",
+      "domains": ["govinfo.gov", "federalregister.gov", "ecfr.gov"],
+      "category": "law",
+      "license": "Public domain",
+      "access": { "method": "api", "endpoints": [
+        "https://api.govinfo.gov/",
+        "https://www.federalregister.gov/api/v1/",
+        "https://www.ecfr.gov/api/"
+      ] },
+      "cadence": "daily",
+      "enabled": true
+    },
+    {
+      "id": "cia_factbook",
+      "name": "CIA World Factbook",
+      "domains": ["cia.gov"],
+      "category": "reference",
+      "license": "Public domain",
+      "access": { "method": "html", "endpoints": ["https://www.cia.gov/the-world-factbook/"] },
+      "cadence": "monthly",
+      "enabled": true
+    },
+    {
+      "id": "proofwiki",
+      "name": "ProofWiki",
+      "domains": ["proofwiki.org"],
+      "category": "math",
+      "license": "CC BY-SA",
+      "access": { "method": "html", "endpoints": ["https://proofwiki.org/wiki/Main_Page"] },
+      "cadence": "monthly",
+      "enabled": true
+    },
+    {
+      "id": "openstax",
+      "name": "OpenStax",
+      "domains": ["openstax.org"],
+      "category": "education",
+      "license": "CC BY",
+      "access": { "method": "html", "endpoints": ["https://openstax.org/subjects"] },
+      "cadence": "quarterly",
+      "enabled": true
+    }
+  ]
+}
+

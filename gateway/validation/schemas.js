@@ -334,3 +334,43 @@ export const ForecastListSchema = z
     topic: z.string().optional(),
     limit: z.coerce.number().int().positive().max(500).optional(),
   });
+
+// Forecast metrics (GET)
+export const ForecastMetricsSchema = z
+  .object({
+    bins: z.coerce.number().int().positive().max(50).optional(),
+    topic: z.string().optional(),
+    minPerBin: z.coerce.number().int().positive().max(100).optional(),
+    limit: z.coerce.number().int().positive().max(5000).optional(),
+    // extras
+    groupTopics: z.coerce.boolean().optional(),
+    slice: z.enum(["day","week","month"]).optional(),
+    dateField: z.enum(["horizon","resolved"]).optional(),
+    minPerSlice: z.coerce.number().int().positive().max(1000).optional(),
+  });
+
+// Backtest seeder (POST)
+export const ForecastBacktestSeedSchema = z
+  .object({
+    topic: z.string().optional(),
+    calendarText: z.string().min(1).optional(),
+    // optionally allow direct events array if caller pre-parsed
+    events: z
+      .array(
+        z.object({
+          summary: z.string(),
+          description: z.string().optional(),
+          start: z.string().optional(),
+          end: z.string().optional(),
+          location: z.string().optional(),
+        })
+      )
+      .optional(),
+    countPerEvent: z.coerce.number().int().positive().max(3).optional(),
+    horizonOffsetDays: z.coerce.number().int().min(0).max(30).optional(),
+    limitEvents: z.coerce.number().int().positive().max(200).optional(),
+  })
+  .refine((d) => Boolean(d.calendarText || (Array.isArray(d.events) && d.events.length)), {
+    message: "calendarText or events[] is required",
+    path: ["calendarText"],
+  });

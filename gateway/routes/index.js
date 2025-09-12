@@ -23,6 +23,7 @@ import { startLlamaServerUseCase, stopLlamaServerUseCase } from "../usecases/run
 import { trainingGet, trainingPut, trainingPatch, trainingDelete, trainingBuild } from "../usecases/training.js";
 import { compressShortToLongUseCase, compressLongGlobalUseCase } from "../usecases/compress.js";
 import { searchWhoogle } from "../tools/whoogle.js";
+import { searchCurated as searchCuratedLocal } from "../tools/curated/search.mjs";
 import { researchWeb } from "../tools/research.js";
 import { answerWeb } from "../tools/answers.js";
 
@@ -80,7 +81,6 @@ export default function registerRoutes(app, deps) {
   const searchLimiter = rateLimit({ windowMs: 60_000, max: 60 });
   const researchLimiter = rateLimit({ windowMs: 60_000, max: 30 });
   const answerLimiter = rateLimit({ windowMs: 60_000, max: 20 });
-  const researchLimiter = rateLimit({ windowMs: 60_000, max: 30 });
   const insightsLimiter = rateLimit({ windowMs: 60_000, max: 15 });
   const graphLimiter = rateLimit({ windowMs: 60_000, max: 15 });
   const debateLimiter = rateLimit({ windowMs: 60_000, max: 12 });
@@ -245,6 +245,26 @@ export default function registerRoutes(app, deps) {
     }
   });
 
+  // Curated search endpoint (local cache)
+  app.get("/curated", searchLimiter, validate(WhoogleSearchSchema), async (req, res) => {
+    try {
+      const query = req.query.q || req.query.query;
+      const num = (() => {
+        const raw = req.query.n ?? req.query.num;
+        const n = Number(raw);
+        return Number.isFinite(n) && n > 0 ? Math.min(n, 20) : 5;
+      })();
+      const site = req.query.site;
+      const lang = req.query.lang;
+      const cache = process.env.CURATED_CACHE;
+      const out = await searchCuratedLocal(query, { num, site, lang, cache });
+      if (!out.ok) return res.status(200).json(out);
+      res.json(out);
+    } catch (e) {
+      res.status(500).json({ ok:false, error: String(e && e.message || e) });
+    }
+  });
+
   // Web research endpoint
   app.get("/research", researchLimiter, validate(ResearchSchema), async (req, res) => {
     const query = req.query.q || req.query.query;
@@ -276,6 +296,28 @@ export default function registerRoutes(app, deps) {
       maxChars: req.query.maxChars ? Number(req.query.maxChars) : undefined,
     };
     try {
+      // Curated-first mode (optional): try local curated cache before web
+      if ((process.env.CURATED_MODE || '').toLowerCase() === '1' || (process.env.CURATED_MODE || '').toLowerCase() === 'true') {
+        const cache = process.env.CURATED_CACHE;
+        const cnum = num || 5;
+        const c = await searchCuratedLocal(query, { num: cnum, site: req.query.site, lang: req.query.lang, cache });
+        if (c && c.ok && Array.isArray(c.results) && c.results.length) {
+          const mapped = c.results.map(r => ({
+            title: r.title || '',
+            url: r.url,
+            snippet: r.snippet || '',
+            page: {
+              ok: true,
+              title: r.title || '',
+              description: '',
+              headings: [],
+              wordCount: (r.snippet || '').split(/\s+/).filter(Boolean).length,
+              content: r.snippet || '',
+            }
+          }));
+          return res.json({ ok: true, query, results: mapped, fetched: mapped.length, source: 'curated' });
+        }
+      }
       const result = await researchWeb(query, opts);
       if (!result.ok) return res.status(500).json(result);
       res.json(result);
@@ -544,6 +586,45 @@ export default function registerRoutes(app, deps) {
     try {
       const { tagStats } = await import("../tools/forecast.js");
       res.json(tagStats());
+    } catch (e) {
+      res.status(500).json({ ok:false, error:String(e&&e.message||e) });
+    }
+  });
+
+  // Forecast dashboard metrics: calibration + tag reliability
+  app.get("/forecast/metrics", forecastLimiter, async (req, res) => {
+    try {
+      const { ForecastMetricsSchema } = await import("../validation/schemas.js");
+      const parsed = ForecastMetricsSchema.safeParse(req.query || {});
+      if (!parsed.success) return res.status(400).json({ ok:false, error: parsed.error.flatten() });
+      const { forecastMetrics, metricsToCsv, metricsForUi } = await import("../tools/forecast.js");
+      const result = forecastMetrics(parsed.data);
+      const format = String(req.query.format || '').toLowerCase();
+      if (format === 'csv') {
+        const csv = metricsToCsv(result);
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        return res.status(200).send(csv);
+      }
+      if (format === 'ui') {
+        const ui = metricsForUi(result);
+        return res.json(ui);
+      }
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ ok:false, error:String(e&&e.message||e) });
+    }
+  });
+
+  // Backtest seeder from ICS/events
+  app.post("/forecast/backtest/seed", forecastLimiter, async (req, res) => {
+    try {
+      const { ForecastBacktestSeedSchema } = await import("../validation/schemas.js");
+      const body = req.body || {};
+      const parsed = ForecastBacktestSeedSchema.safeParse(body);
+      if (!parsed.success) return res.status(400).json({ ok:false, error: parsed.error.flatten() });
+      const { seedBacktestForecasts } = await import("../tools/forecast.js");
+      const result = await seedBacktestForecasts(parsed.data);
+      res.json(result);
     } catch (e) {
       res.status(500).json({ ok:false, error:String(e&&e.message||e) });
     }
