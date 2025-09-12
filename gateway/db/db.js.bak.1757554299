@@ -1,18 +1,12 @@
-
+import path from 'path';
 import fs from 'fs';
 import Database from 'better-sqlite3';
-import path from 'path';
-import { fileURLToPath } from 'url';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const MIGRATIONS_DIR = path.resolve(__dirname, 'migrations');
-
 
 const isTest = process.env.NODE_ENV === 'test';
 
 let db;
 const DB_PATH = isTest ? ':memory:' : path.resolve(process.cwd(), 'gateway', 'db', 'app.db');
-
+const MIGRATIONS_DIR = path.resolve(process.cwd(), 'gateway', 'db', 'migrations');
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
 // Open database
@@ -82,48 +76,6 @@ export function getLongTerm(userId, workspaceId) {
   return row ? row.content : '';
 }
 
-// Forecasts CRUD
-export function insertForecast(f) {
-  const sql = `INSERT INTO forecasts (topic, question, resolution_criteria, horizon_ts, probability, rationale, methodology_tags, sources, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open')`;
-  const params = [
-    f.topic,
-    f.question,
-    f.resolution_criteria,
-    f.horizon_ts,
-    Math.max(0, Math.min(1, Number(f.probability) || 0)),
-    f.rationale || '',
-    JSON.stringify(f.methodology_tags || []),
-    JSON.stringify(f.sources || []),
-  ];
-  const info = run(sql, params);
-  return info.lastInsertRowid;
-}
-
-export function listForecasts({ status, topic, limit=100 } = {}) {
-  let sql = 'SELECT * FROM forecasts';
-  const where = [];
-  const params = [];
-  if (status) { where.push('status = ?'); params.push(String(status)); }
-  if (topic) { where.push('topic LIKE ?'); params.push(`%${topic}%`); }
-  if (where.length) sql += ' WHERE ' + where.join(' AND ');
-  sql += ' ORDER BY horizon_ts ASC LIMIT ?';
-  params.push(Math.min(500, Math.max(1, Number(limit)||100)));
-  const stmt = db.prepare(sql);
-  return stmt.all(params);
-}
-
-export function listDueForecasts({ nowTs = new Date().toISOString(), limit = 50 } = {}) {
-  const sql = `SELECT * FROM forecasts WHERE status = 'open' AND horizon_ts <= ? ORDER BY horizon_ts ASC LIMIT ?`;
-  const stmt = db.prepare(sql);
-  return stmt.all([ nowTs, Math.min(200, Math.max(1, Number(limit)||50)) ]);
-}
-
-export function resolveForecast(id, { outcome, judge, resolved_at = new Date().toISOString(), brier_score = null, notes = null } = {}) {
-  const sql = `UPDATE forecasts SET status='resolved', outcome=?, judge=?, resolved_at=?, brier_score=?, notes=? WHERE id=?`;
-  run(sql, [ String(outcome||'unknown'), JSON.stringify(judge||{}), resolved_at, (brier_score==null? null : Number(brier_score)), notes, id ]);
-}
-
 export default {
   getUserByUsername,
   createUser,
@@ -131,8 +83,4 @@ export default {
   getShortTerm,
   setLongTerm,
   getLongTerm,
-  insertForecast,
-  listForecasts,
-  listDueForecasts,
-  resolveForecast,
 };

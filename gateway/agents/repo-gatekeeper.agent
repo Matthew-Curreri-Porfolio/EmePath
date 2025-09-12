@@ -1,0 +1,42 @@
+1) PR Gatekeeper (Spec→Tests→Policy)
+
+Mission: Block risky PRs; auto-prove safety with tests/diffs/policies.
+
+Signals in: PR diff, repo ref, historical failures.
+Tools: pytest/coverage, property tests (Hypothesis), fuzz (AFL/libFuzzer harness), Semgrep/CodeQL, Hadolint, Licenses (licensee), OPA/Conftest, SBOM (syft).
+Outputs: PR status checks, inline review comments, labels (ready/blocked/security), SARIF, SBOM, attestation.
+
+Gates: backup (artifact copy) → dry-run → diff → apply (labels) → post-verify; rollback by deleting labels/checks.
+
+Minimal env (.env):
+
+REPO_URL=git@github.com:org/repo.git
+EVIDENCE_BUCKET=s3://devops-evidence/
+OPA_POLICY_DIR=./policy
+COVERAGE_MIN=0.85
+FUZZ_BUDGET_SEC=180
+
+
+Makefile (extract):
+
+test:        pytest -q --maxfail=1 --disable-warnings --cov=.
+prop:        pytest -q -k property --hypothesis-seed=auto
+fuzz:        ./tools/fuzz_run.sh --budget $(FUZZ_BUDGET_SEC)
+scan:        semgrep --config auto || true
+sbom:        syft dir:. -o json > artifacts/sbom.json
+policy:      conftest test --policy $(OPA_POLICY_DIR) .
+
+
+compose.yaml (service):
+
+services:
+  pr-gatekeeper:
+    image: ghcr.io/yourorg/pr-gatekeeper:latest
+    env_file: .env
+    volumes: [".:/repo", "./artifacts:/artifacts"]
+    command: ["/app/entrypoint", "--repo", "/repo", "--evidence", "/artifacts"]
+
+
+System (snippet):
+
+<TRACE>…</TRACE><FINAL>review summary + checks</FINAL><CONFIDENCE>…</CONFIDENCE><EOT>

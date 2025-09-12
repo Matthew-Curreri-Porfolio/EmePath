@@ -1,0 +1,36 @@
+Release Pilot (Version→Sign→Provenance→Promote)
+
+Mission: Cut releases safely: semver, changelog, signed artifacts, SBOM/provenance, staged rollout with auto-rollback.
+
+Tools: semantic-release (or goreleaser), cosign, syft/syft-json, slsa-provenance, Helm/K8s canary, rollout checks (p95/p99, error-rate).
+
+Env:
+
+REGISTRY=ghcr.io/yourorg/app
+COSIGN_KEY=cosign.key
+CANARY_PERCENT=10
+ROLLBACK_5XX_THRESHOLD=2.0
+
+
+Makefile:
+
+version: semantic-release --no-ci
+build:   docker build -t $(REGISTRY):$(TAG) .
+sign:    cosign sign --key $(COSIGN_KEY) $(REGISTRY):$(TAG)
+sbom:    syft $(REGISTRY):$(TAG) -o spdx-json > artifacts/sbom-$(TAG).json
+prov:    slsa-provenance --image $(REGISTRY):$(TAG) > artifacts/prov-$(TAG).json
+promote: helm upgrade --install app charts/app --set image.tag=$(TAG) --set canary=$(CANARY_PERCENT)
+verify:  ./ops/check_slo.sh || make rollback
+rollback: helm rollback app 1
+
+
+compose (artifacter):
+
+services:
+  release-pilot:
+    image: ghcr.io/yourorg/release-pilot:latest
+    volumes: ["./artifacts:/artifacts","~/.docker/config.json:/root/.docker/config.json:ro"]
+    command: ["/app/release", "--strategy", "canary"]
+
+
+System (snippet): same contract; include <ATTESTATION> with cosign & SLSA references.
