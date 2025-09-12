@@ -6,6 +6,9 @@ import compression from "compression";
 import rateLimit from "express-rate-limit";
 import * as prom from "prom-client";
 import { randomUUID } from "crypto";
+import { registerPublic } from "./public.js";
+import { registerPrivate } from "./private.js";
+import { registerAgentic } from "./agentic.js";
 
 import db from "../db/db.js";
 import { completeUseCase } from "../usecases/complete.js";
@@ -26,6 +29,7 @@ import { searchWhoogle } from "../tools/whoogle.js";
 import { searchCurated as searchCuratedLocal } from "../tools/curated/search.mjs";
 import { researchWeb } from "../tools/research.js";
 import { answerWeb } from "../tools/answers.js";
+import { registerModelResolver } from "./modelResolver.js";
 
 import { validate } from "../middleware/validate.js";
 import {
@@ -88,96 +92,23 @@ export default function registerRoutes(app, deps) {
   const trainLimiter = rateLimit({ windowMs: 60_000, max: 4 });
   const forecastLimiter = rateLimit({ windowMs: 60_000, max: 20 });
 
-  // Liveness
-  app.get("/health", (_req, res) =>
-    res.json({ ok: true, mock: MOCK, model: MODEL, ollama: OLLAMA, timeoutMs: getTimeoutMs(), pid: process.pid })
-  );
+  // Public routes
+  registerPublic(app, deps);
 
-  // Readiness (llama.cpp server if configured)
-  app.get("/ready", async (_req, res) => {
-    const base = String(process.env.LLAMACPP_SERVER || "").replace(/\/$/, "");
-    if (!base) {
-      return res.status(200).json({ ok: true, upstream: "llama.cpp-cli", status: 200 });
-    }
+  // Agentic routes
+  registerAgentic(app, deps, { chatLimiter, searchLimiter, researchLimiter, answerLimiter, insightsLimiter, graphLimiter, debateLimiter, planLimiter, trainLimiter, forecastLimiter, compressLimiter });
+
+  // Private routes
+  registerPrivate(app, deps, { memoryLimiter });
+  // Model resolver
+  app.get("/model/resolve", (req, res) => {
     try {
-      const r = await fetch(`${base}/v1/models`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: "{}",
-        signal: AbortSignal.timeout(3000),
-      });
-      return res
-        .status(r.ok ? 200 : 503)
-        .json({ ok: r.ok, upstream: "llama.cpp-server", status: r.status });
+      registerModelResolver(app, deps);
+      res.json({ ok: true });
     } catch (e) {
-      return res.status(503).json({ ok: false, error: (e && e.message) || String(e) });
+      res.status(500).json({ ok: false, error: (e && e.message) || String(e) });
     }
   });
-
-  // Metrics scrape
-  app.get("/metrics", async (_req, res) => {
-    res.set("Content-Type", prom.register.contentType);
-    res.end(await prom.register.metrics());
-  });
-
-  // Core LLM routes
-  app.post("/complete", validate(CompleteSchema), async (req, res) => {
-    await completeUseCase(req, res, deps);
-  });
-  app.post("/chat", chatLimiter, validate(ChatSchema), async (req, res) => {
-    await chatUseCase(req, res, deps);
-  });
-  app.post("/chat/stream", chatLimiter, validate(ChatSchema), async (req, res) => {
-    await chatStreamUseCase(req, res, deps);
-  });
-  app.get("/models", async (_req, res) => {
-    const models = await getModels();
-    res.json({ models });
-  });
-  app.post("/warmup", validate(WarmupSchema), async (req, res) => {
-    await warmupUseCase(req, res, deps);
-  });
-
-  // Indexing / Query
-  app.post("/scan", validate(ScanSchema), async (req, res) => {
-    await scanUseCase(req, res, deps);
-  });
-  app.post("/query", validate(QuerySchema), async (req, res) => {
-    await queryUseCase(req, res, deps);
-  });
-
-  // Auth
-  app.post("/auth/login", async (req, res) => {
-    await loginUseCase(req, res, deps);
-  });
-
-  // Memory short/long CRUD
-  app.get("/memory/short", requireAuth, async (req, res) => {
-    await memoryList(req, res, "short");
-  });
-  app.get("/memory/short/:memid", requireAuth, async (req, res) => {
-    await memoryGet(req, res, "short");
-  });
-  app.post("/memory/short", requireAuth, memoryLimiter, validate(MemoryWriteSchema), async (req, res) => {
-    await memoryShortUseCase(req, res, deps);
-  });
-  app.delete("/memory/short/:memid", requireAuth, memoryLimiter, async (req, res) => {
-    await memoryDelete(req, res, "short");
-  });
-
-  app.get("/memory/long", requireAuth, async (req, res) => {
-    await memoryList(req, res, "long");
-  });
-  app.get("/memory/long/:memid", requireAuth, async (req, res) => {
-    await memoryGet(req, res, "long");
-  });
-  app.post("/memory/long", requireAuth, memoryLimiter, validate(MemoryWriteSchema), async (req, res) => {
-    await memoryLongUseCase(req, res, deps);
-  });
-  app.delete("/memory/long/:memid", requireAuth, memoryLimiter, async (req, res) => {
-    await memoryDelete(req, res, "long");
-  });
-
   // Training
   app.get("/user/training", requireAuth, trainingLimiter, async (req, res) => {
     await trainingGet(req, res);
@@ -261,7 +192,7 @@ export default function registerRoutes(app, deps) {
       if (!out.ok) return res.status(200).json(out);
       res.json(out);
     } catch (e) {
-      res.status(500).json({ ok:false, error: String(e && e.message || e) });
+      res.status(500).json({ ok: false, error: String(e && e.message || e) });
     }
   });
 
@@ -331,10 +262,10 @@ export default function registerRoutes(app, deps) {
     try {
       const { InsightsGraphSchema } = await import("../validation/schemas.js");
       const parsed = InsightsGraphSchema.safeParse(req.query || {});
-      if (!parsed.success) return res.status(400).json({ ok:false, error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
       const query = req.query.q || req.query.query;
-      const mode = req.query.mode && ["web","local","hybrid"].includes(String(req.query.mode))
+      const mode = req.query.mode && ["web", "local", "hybrid"].includes(String(req.query.mode))
         ? String(req.query.mode) : "web";
       const num = (() => {
         const raw = req.query.n ?? req.query.num;
@@ -372,7 +303,7 @@ export default function registerRoutes(app, deps) {
       if (!result.ok) return res.status(500).json(result);
       res.json(result);
     } catch (e) {
-      res.status(500).json({ ok:false, error: String(e && e.message || e) });
+      res.status(500).json({ ok: false, error: String(e && e.message || e) });
     }
   });
 
@@ -382,27 +313,27 @@ export default function registerRoutes(app, deps) {
       const { DebateSchema } = await import("../validation/schemas.js");
       const data = req.query || {};
       const parsed = DebateSchema.safeParse(data);
-      if (!parsed.success) return res.status(400).json({ ok:false, error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
       const query = data.q || data.query;
-      const mode = data.mode && ["web","local","hybrid"].includes(String(data.mode)) ? String(data.mode) : 'hybrid';
-      const num = (() => { const n = Number(data.n ?? data.num); return Number.isFinite(n)&&n>0?Math.min(n,20):undefined; })();
-      const fetchNum = (() => { const n = Number(data.f ?? data.fetchNum); return Number.isFinite(n)&&n>0?Math.min(n,10):undefined; })();
-      const concurrency = (() => { const n = Number(data.c ?? data.concurrency); return Number.isFinite(n)&&n>0?Math.min(n,6):undefined; })();
+      const mode = data.mode && ["web", "local", "hybrid"].includes(String(data.mode)) ? String(data.mode) : 'hybrid';
+      const num = (() => { const n = Number(data.n ?? data.num); return Number.isFinite(n) && n > 0 ? Math.min(n, 20) : undefined; })();
+      const fetchNum = (() => { const n = Number(data.f ?? data.fetchNum); return Number.isFinite(n) && n > 0 ? Math.min(n, 10) : undefined; })();
+      const concurrency = (() => { const n = Number(data.c ?? data.concurrency); return Number.isFinite(n) && n > 0 ? Math.min(n, 6) : undefined; })();
       const localK = data.localK ? Math.min(Math.max(1, Number(data.localK)), 20) : undefined;
 
       const opts = {
         mode,
-        useInsights: typeof data.useInsights !== 'undefined' ? (String(data.useInsights).toLowerCase()==='true'||data.useInsights===true) : true,
+        useInsights: typeof data.useInsights !== 'undefined' ? (String(data.useInsights).toLowerCase() === 'true' || data.useInsights === true) : true,
         rounds: data.rounds ? Math.min(Math.max(1, Number(data.rounds)), 4) : 2,
-        trace: typeof data.trace !== 'undefined' ? (String(data.trace).toLowerCase()==='true'||data.trace===true) : false,
+        trace: typeof data.trace !== 'undefined' ? (String(data.trace).toLowerCase() === 'true' || data.trace === true) : false,
         base: process.env.WHOOGLE_BASE,
         num,
         fetchNum,
         concurrency,
         site: data.site,
         lang: data.lang,
-        safe: typeof data.safe !== 'undefined' ? (String(data.safe).toLowerCase()==='true'||data.safe===true) : undefined,
+        safe: typeof data.safe !== 'undefined' ? (String(data.safe).toLowerCase() === 'true' || data.safe === true) : undefined,
         fresh: data.fresh,
         localIndex: typeof getIndex === 'function' ? getIndex() : undefined,
         localK,
@@ -415,7 +346,7 @@ export default function registerRoutes(app, deps) {
       if (!result.ok) return res.status(500).json(result);
       res.json(result);
     } catch (e) {
-      res.status(500).json({ ok:false, error: String(e && e.message || e) });
+      res.status(500).json({ ok: false, error: String(e && e.message || e) });
     }
   });
 
@@ -425,9 +356,9 @@ export default function registerRoutes(app, deps) {
       const { PlanSchema } = await import("../validation/schemas.js");
       const data = req.body || {};
       const parsed = PlanSchema.safeParse(data);
-      if (!parsed.success) return res.status(400).json({ ok:false, error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
-      const mode = data.mode && ["web","local","hybrid"].includes(String(data.mode)) ? String(data.mode) : 'hybrid';
+      const mode = data.mode && ["web", "local", "hybrid"].includes(String(data.mode)) ? String(data.mode) : 'hybrid';
       const num = data.num ? Math.min(Math.max(1, Number(data.num)), 20) : undefined;
       const fetchNum = data.fetchNum ? Math.min(Math.max(1, Number(data.fetchNum)), 10) : undefined;
       const concurrency = data.concurrency ? Math.min(Math.max(1, Number(data.concurrency)), 6) : undefined;
@@ -441,7 +372,7 @@ export default function registerRoutes(app, deps) {
         concurrency,
         site: data.site,
         lang: data.lang,
-        safe: typeof data.safe !== 'undefined' ? (String(data.safe).toLowerCase()==='true'||data.safe===true) : undefined,
+        safe: typeof data.safe !== 'undefined' ? (String(data.safe).toLowerCase() === 'true' || data.safe === true) : undefined,
         fresh: data.fresh,
         localIndex: typeof getIndex === 'function' ? getIndex() : undefined,
         localK,
@@ -453,7 +384,7 @@ export default function registerRoutes(app, deps) {
       if (!result.ok) return res.status(500).json(result);
       res.json(result);
     } catch (e) {
-      res.status(500).json({ ok:false, error: String(e && e.message || e) });
+      res.status(500).json({ ok: false, error: String(e && e.message || e) });
     }
   });
 
@@ -463,9 +394,9 @@ export default function registerRoutes(app, deps) {
       const { TrainLoopSchema } = await import("../validation/schemas.js");
       const data = req.body || {};
       const parsed = TrainLoopSchema.safeParse(data);
-      if (!parsed.success) return res.status(400).json({ ok:false, error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
-      const mode = data.mode && ["web","local","hybrid"].includes(String(data.mode)) ? String(data.mode) : 'hybrid';
+      const mode = data.mode && ["web", "local", "hybrid"].includes(String(data.mode)) ? String(data.mode) : 'hybrid';
       const num = data.num ? Math.min(Math.max(1, Number(data.num)), 20) : undefined;
       const fetchNum = data.fetchNum ? Math.min(Math.max(1, Number(data.fetchNum)), 10) : undefined;
       const concurrency = data.concurrency ? Math.min(Math.max(1, Number(data.concurrency)), 6) : undefined;
@@ -482,13 +413,13 @@ export default function registerRoutes(app, deps) {
         concurrency,
         site: data.site,
         lang: data.lang,
-        safe: typeof data.safe !== 'undefined' ? (String(data.safe).toLowerCase()==='true'||data.safe===true) : undefined,
+        safe: typeof data.safe !== 'undefined' ? (String(data.safe).toLowerCase() === 'true' || data.safe === true) : undefined,
         fresh: data.fresh,
         localIndex: typeof getIndex === 'function' ? getIndex() : undefined,
         localK,
         maxContextChars: data.maxContextChars ? Number(data.maxContextChars) : undefined,
         maxAnswerTokens: data.maxAnswerTokens ? Number(data.maxAnswerTokens) : undefined,
-        persist: typeof data.persist !== 'undefined' ? (String(data.persist).toLowerCase()==='true'||data.persist===true) : false,
+        persist: typeof data.persist !== 'undefined' ? (String(data.persist).toLowerCase() === 'true' || data.persist === true) : false,
         setLongTerm: undefined,
         userId: undefined,
         workspaceId: undefined,
@@ -500,7 +431,7 @@ export default function registerRoutes(app, deps) {
           opts.setLongTerm = setLongTerm;
           if (data.userId) opts.userId = Number(data.userId);
           if (data.workspaceId) opts.workspaceId = String(data.workspaceId);
-        } catch {}
+        } catch { }
       }
 
       const { trainLoop } = await import("../tools/training.js");
@@ -508,7 +439,7 @@ export default function registerRoutes(app, deps) {
       if (!result.ok) return res.status(500).json(result);
       res.json(result);
     } catch (e) {
-      res.status(500).json({ ok:false, error: String(e && e.message || e) });
+      res.status(500).json({ ok: false, error: String(e && e.message || e) });
     }
   });
 
@@ -518,7 +449,7 @@ export default function registerRoutes(app, deps) {
       const { ForecastSeedSchema } = await import("../validation/schemas.js");
       const body = req.body || {};
       const parsed = ForecastSeedSchema.safeParse(body);
-      if (!parsed.success) return res.status(400).json({ ok:false, error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
       const { seedForecasts } = await import("../tools/forecast.js");
       const opts = {
         mode: body.mode || 'hybrid',
@@ -530,7 +461,7 @@ export default function registerRoutes(app, deps) {
         concurrency: body.concurrency,
         site: body.site,
         lang: body.lang,
-        safe: typeof body.safe !== 'undefined' ? (String(body.safe).toLowerCase()==='true'||body.safe===true) : undefined,
+        safe: typeof body.safe !== 'undefined' ? (String(body.safe).toLowerCase() === 'true' || body.safe === true) : undefined,
         fresh: body.fresh,
         localIndex: typeof getIndex === 'function' ? getIndex() : undefined,
         localK: body.localK,
@@ -539,7 +470,7 @@ export default function registerRoutes(app, deps) {
       const result = await seedForecasts(body.topic, opts);
       res.json(result);
     } catch (e) {
-      res.status(500).json({ ok:false, error:String(e&&e.message||e) });
+      res.status(500).json({ ok: false, error: String(e && e.message || e) });
     }
   });
 
@@ -548,7 +479,7 @@ export default function registerRoutes(app, deps) {
       const { ForecastResolveSchema } = await import("../validation/schemas.js");
       const body = req.body || {};
       const parsed = ForecastResolveSchema.safeParse(body);
-      if (!parsed.success) return res.status(400).json({ ok:false, error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
       const { resolveDueForecasts } = await import("../tools/forecast.js");
       const opts = {
         limit: body.limit || 20,
@@ -558,13 +489,13 @@ export default function registerRoutes(app, deps) {
         concurrency: body.concurrency,
         site: body.site,
         lang: body.lang,
-        safe: typeof body.safe !== 'undefined' ? (String(body.safe).toLowerCase()==='true'||body.safe===true) : undefined,
+        safe: typeof body.safe !== 'undefined' ? (String(body.safe).toLowerCase() === 'true' || body.safe === true) : undefined,
         fresh: body.fresh,
       };
       const result = await resolveDueForecasts(opts);
       res.json(result);
     } catch (e) {
-      res.status(500).json({ ok:false, error:String(e&&e.message||e) });
+      res.status(500).json({ ok: false, error: String(e && e.message || e) });
     }
   });
 
@@ -573,12 +504,12 @@ export default function registerRoutes(app, deps) {
       const { ForecastListSchema } = await import("../validation/schemas.js");
       const q = req.query || {};
       const parsed = ForecastListSchema.safeParse(q);
-      if (!parsed.success) return res.status(400).json({ ok:false, error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
       const { listAllForecasts } = await import("../tools/forecast.js");
       const result = listAllForecasts({ status: q.status, topic: q.topic, limit: q.limit ? Number(q.limit) : undefined });
       res.json(result);
     } catch (e) {
-      res.status(500).json({ ok:false, error:String(e&&e.message||e) });
+      res.status(500).json({ ok: false, error: String(e && e.message || e) });
     }
   });
 
@@ -587,7 +518,7 @@ export default function registerRoutes(app, deps) {
       const { tagStats } = await import("../tools/forecast.js");
       res.json(tagStats());
     } catch (e) {
-      res.status(500).json({ ok:false, error:String(e&&e.message||e) });
+      res.status(500).json({ ok: false, error: String(e && e.message || e) });
     }
   });
 
@@ -596,7 +527,7 @@ export default function registerRoutes(app, deps) {
     try {
       const { ForecastMetricsSchema } = await import("../validation/schemas.js");
       const parsed = ForecastMetricsSchema.safeParse(req.query || {});
-      if (!parsed.success) return res.status(400).json({ ok:false, error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
       const { forecastMetrics, metricsToCsv, metricsForUi } = await import("../tools/forecast.js");
       const result = forecastMetrics(parsed.data);
       const format = String(req.query.format || '').toLowerCase();
@@ -611,7 +542,7 @@ export default function registerRoutes(app, deps) {
       }
       res.json(result);
     } catch (e) {
-      res.status(500).json({ ok:false, error:String(e&&e.message||e) });
+      res.status(500).json({ ok: false, error: String(e && e.message || e) });
     }
   });
 
@@ -621,12 +552,12 @@ export default function registerRoutes(app, deps) {
       const { ForecastBacktestSeedSchema } = await import("../validation/schemas.js");
       const body = req.body || {};
       const parsed = ForecastBacktestSeedSchema.safeParse(body);
-      if (!parsed.success) return res.status(400).json({ ok:false, error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
       const { seedBacktestForecasts } = await import("../tools/forecast.js");
       const result = await seedBacktestForecasts(parsed.data);
       res.json(result);
     } catch (e) {
-      res.status(500).json({ ok:false, error:String(e&&e.message||e) });
+      res.status(500).json({ ok: false, error: String(e && e.message || e) });
     }
   });
 
@@ -635,10 +566,10 @@ export default function registerRoutes(app, deps) {
     try {
       const { InsightsSchema } = await import("../validation/schemas.js");
       const parsed = InsightsSchema.safeParse(req.query || {});
-      if (!parsed.success) return res.status(400).json({ ok:false, error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
       const query = req.query.q || req.query.query;
-      const mode = req.query.mode && ["web","local","hybrid"].includes(String(req.query.mode))
+      const mode = req.query.mode && ["web", "local", "hybrid"].includes(String(req.query.mode))
         ? String(req.query.mode) : "web";
 
       const num = (() => {
@@ -686,85 +617,9 @@ export default function registerRoutes(app, deps) {
       if (!result.ok) return res.status(500).json(result);
       res.json(result);
     } catch (e) {
-      res.status(500).json({ ok:false, error: String(e && e.message || e) });
+      res.status(500).json({ ok: false, error: String(e && e.message || e) });
     }
   });
 
-  // Direct answer synthesis with citations
-  app.get("/answer", answerLimiter, validate(AnswerSchema), async (req, res) => {
-    const query = req.query.q || req.query.query;
-    const num = (() => {
-      const raw = req.query.n ?? req.query.num;
-      const n = Number(raw);
-      return Number.isFinite(n) && n > 0 ? Math.min(n, 20) : undefined;
-    })();
-    const fetchNum = (() => {
-      const raw = req.query.f ?? req.query.fetchNum;
-      const n = Number(raw);
-      return Number.isFinite(n) && n > 0 ? Math.min(n, 8) : undefined;
-    })();
-    const concurrency = (() => {
-      const raw = req.query.c ?? req.query.concurrency;
-      const n = Number(raw);
-      return Number.isFinite(n) && n > 0 ? Math.min(n, 6) : undefined;
-    })();
-    const opts = {
-      base: process.env.WHOOGLE_BASE,
-      num,
-      fetchNum,
-      concurrency,
-      site: req.query.site,
-      lang: req.query.lang,
-      safe: typeof req.query.safe !== 'undefined' ? (String(req.query.safe).toLowerCase() === 'true' || req.query.safe === true) : undefined,
-      fresh: req.query.fresh,
-      maxContextChars: req.query.maxContextChars ? Number(req.query.maxContextChars) : undefined,
-      maxAnswerTokens: req.query.maxAnswerTokens ? Number(req.query.maxAnswerTokens) : undefined,
-    };
-    try {
-      const result = await answerWeb(query, opts);
-      if (!result.ok) return res.status(500).json(result);
-      res.json(result);
-    } catch (e) {
-      res.status(500).json({ ok: false, error: String(e) });
-    }
-  });
-
-  // Web research endpoint
-  app.get("/research", researchLimiter, validate(ResearchSchema), async (req, res) => {
-    const query = req.query.q || req.query.query;
-    const num = (() => {
-      const raw = req.query.n ?? req.query.num;
-      const n = Number(raw);
-      return Number.isFinite(n) && n > 0 ? Math.min(n, 20) : undefined;
-    })();
-    const fetchNum = (() => {
-      const raw = req.query.f ?? req.query.fetchNum;
-      const n = Number(raw);
-      return Number.isFinite(n) && n > 0 ? Math.min(n, 10) : undefined;
-    })();
-    const concurrency = (() => {
-      const raw = req.query.c ?? req.query.concurrency;
-      const n = Number(raw);
-      return Number.isFinite(n) && n > 0 ? Math.min(n, 6) : undefined;
-    })();
-    const opts = {
-      base: process.env.WHOOGLE_BASE,
-      num,
-      fetchNum,
-      concurrency,
-      site: req.query.site,
-      lang: req.query.lang,
-      safe: typeof req.query.safe !== 'undefined' ? (String(req.query.safe).toLowerCase() === 'true' || req.query.safe === true) : undefined,
-      fresh: req.query.fresh,
-      timeoutMs: req.query.timeoutMs ? Number(req.query.timeoutMs) : undefined,
-      maxChars: req.query.maxChars ? Number(req.query.maxChars) : undefined,
-    };
-    try {
-      const result = await researchWeb(query, opts);
-      if (!result.ok) return res.status(500).json(result);
-      res.json(result);
-    } catch (e) {
-      res.status(500).json({ ok: false, error: String(e) });
-    }
-  });
+  // legacy agentic routes removed — see routes/agentic.js
 }

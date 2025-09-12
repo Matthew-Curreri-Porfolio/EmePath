@@ -43,7 +43,7 @@ const util_1 = require("util");
 \*───────────────────────────────────────────────────────────────────────────*/
 let status;
 let inlineEnabled = true;
-let gatewayUrl = "http://127.0.0.1:3030";
+let gatewayUrl = "http://127.0.0.1:3123";
 let disposableProvider = null;
 const cfgKey = "codexz";
 const out = vscode.window.createOutputChannel("Codexz");

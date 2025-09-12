@@ -7,6 +7,14 @@
     "curated:ingest:starter:bash": "bash gateway/scripts/ingest_starter_curated.sh",
     "curated:search:test": "node gateway/scripts/test_curated_search.js",
     "curated:ingest:nightly": "node gateway/scripts/ingest_nightly_curated.mjs",
-    "annotate:text": "node gateway/scripts/annotate_text.mjs"
+    "annotate:text": "node gateway/scripts/annotate_text.mjs",
+    "smoke:rooms": "node gateway/rooms/tests/smoke.rooms.test.js",
+    "smoke:memory": "node gateway/memory/tests/smoke.memory.test.js",
+    "db:backup": "scripts/backup_db.sh",
+    "daily": "node scripts/daily_maint.js",
+    "lint": "eslint \"gateway/**/*.{js,mjs,cjs}\"",
+    "format": "prettier --write .",
+    "py:lint": "ruff check gateway/tools",
+    "py:format": "black gateway/tools"
   }
 }

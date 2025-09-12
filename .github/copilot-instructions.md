@@ -208,8 +208,8 @@ If a tool is not available, ask the user to enable the MCP server or add it to *
 
 This workspace implements a small local LLM gateway + VS Code extension + indexer and an MCP demo server.
 Key runtime pieces you should know about:
-- `gateway/` — Express service (default port 3030) that indexes the workspace (`/scan`), answers `POST /query`, and proxies to an LLM (`/complete`, `/chat`, `/warmup`). See `gateway/server.js`.
-- `extension/` — VS Code extension that provides inline completions and a chat webview. It calls the gateway (default `http://127.0.0.1:3030`). See `extension/src/extension.ts` and `extension/media/chat.html`.
+- `gateway/` — Express service (default port 3123) that indexes the workspace (`/scan`), answers `POST /query`, and proxies to an LLM (`/complete`, `/chat`, `/warmup`). See `gateway/server.js`.
+- `extension/` — VS Code extension that provides inline completions and a chat webview. It calls the gateway (default `http://127.0.0.1:3123`). See `extension/src/extension.ts` and `extension/media/chat.html`.
 - `indexer/` — a tiny fast-glob based script used for quick ad-hoc indexing; `indexer/index.js` demonstrates file collection.
 - `mcp-server/` — example Model Context Protocol server (stdio transport). See `mcp-server/src/index.ts`.
 
@@ -253,13 +253,13 @@ Key runtime pieces you should know about:
 ## Integration points & example calls AI agents may need to make
 
 - Scan the workspace (extension triggers this):
-  - POST http://127.0.0.1:3030/scan with JSON { root: <workspaceRoot>, maxFileSize: <bytes> }
+  - POST http://127.0.0.1:3123/scan with JSON { root: <workspaceRoot>, maxFileSize: <bytes> }
   - Response: { ok: true, root, count }
 - Query for relevant snippets before calling the LLM:
-  - POST http://127.0.0.1:3030/query with { q: "search terms", k: <limit> }
+  - POST http://127.0.0.1:3123/query with { q: "search terms", k: <limit> }
   - Gateway requires an index (scan) to be present or returns 400.
 - Request completion (gateway forwards to upstream model):
-  - POST http://127.0.0.1:3030/complete with { language, prefix, suffix, path, cursor, budgetMs, timeoutMs }
+  - POST http://127.0.0.1:3123/complete with { language, prefix, suffix, path, cursor, budgetMs, timeoutMs }
   - If gateway is run with `MOCK=1` the returned body is a short mock completion.
 
 ## Debugging tips and logs
@@ -291,7 +291,7 @@ curl -s http://127.0.0.1:11434/api/tags | jq .
 
 Ports & env matrix (at a glance)
 Component	Default	Override env
-Gateway	:3030	PORT, GATEWAY_TIMEOUT_MS, VERBOSE
+Gateway	:3123	PORT, GATEWAY_TIMEOUT_MS, VERBOSE
 Upstream	:11434	OLLAMA (e.g., http://127.0.0.1:11434)
 Model	qwen2.5-coder:7b-instruct	MODEL
 
@@ -309,7 +309,7 @@ MODEL=gemma3:12b npm --prefix gateway run start
 VERBOSE=1 LOG_BODY=1 npm --prefix gateway run start
 
 # extension devhost (new window)
-OSS_CODEX_GATEWAY=http://127.0.0.1:3030 npm run extension:devhost
+OSS_CODEX_GATEWAY=http://127.0.0.1:3123 npm run extension:devhost
 
 Endpoints (add these two that folks often look for)
 
@@ -323,25 +323,25 @@ Body: {"model":"qwen2.5-coder:7b-instruct","keepAlive":"2h","timeoutMs":300000}
 
 Curl flows (cut-and-paste)
 # 1) Health
-curl -s http://127.0.0.1:3030/health | jq .
+curl -s http://127.0.0.1:3123/health | jq .
 
 # 2) Scan repo
-curl -sS -X POST http://127.0.0.1:3030/scan \
+curl -sS -X POST http://127.0.0.1:3123/scan \
   -H 'content-type: application/json' \
   -d '{"root":"'$PWD'","maxFileSize":262144}' | jq .
 
 # 3) Query snippets
-curl -sS -X POST http://127.0.0.1:3030/query \
+curl -sS -X POST http://127.0.0.1:3123/query \
   -H 'content-type: application/json' \
   -d '{"q":"entry points OR server.js","k":6}' | jq .
 
 # 4) Chat (plain)
-curl -sS -X POST http://127.0.0.1:3030/chat \
+curl -sS -X POST http://127.0.0.1:3123/chat \
   -H 'content-type: application/json' \
   -d '{"messages":[{"role":"user","content":"Hello"}]}' | jq .
 
 # 5) Chat (pick model + longer timeout)
-curl -sS -X POST http://127.0.0.1:3030/chat \
+curl -sS -X POST http://127.0.0.1:3123/chat \
   -H 'content-type: application/json' \
   -d '{"model":"qwen2.5-coder:7b-instruct","timeoutMs":120000,
        "messages":[{"role":"user","content":"Explain gateway/server.js"}]}' | jq .
@@ -360,7 +360,7 @@ VS Code devhost helpers (optional but very handy)
       "runtimeExecutable": "code",
       "args": ["--extensionDevelopmentPath=${workspaceFolder}/extension"],
       "env": {
-        "OSS_CODEX_GATEWAY": "http://127.0.0.1:3030"
+        "OSS_CODEX_GATEWAY": "http://127.0.0.1:3123"
       }
     }
   ]
@@ -402,7 +402,7 @@ Codexz: Toggle Inline Completions (codexz.toggleInline)
 
 Settings:
 
-codexz.gatewayUrl (string, default http://127.0.0.1:3030)
+codexz.gatewayUrl (string, default http://127.0.0.1:3123)
 
 codexz.inlineEnabled (boolean, default true)
 

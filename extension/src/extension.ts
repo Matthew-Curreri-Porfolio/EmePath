@@ -8,7 +8,7 @@ import { TextDecoder } from "util";
 
 let status: vscode.StatusBarItem;
 let inlineEnabled = true;
-let gatewayUrl = "http://127.0.0.1:3030";
+let gatewayUrl = "http://127.0.0.1:3123";
 let disposableProvider: vscode.Disposable | null = null;
 
 const cfgKey = "codexz";

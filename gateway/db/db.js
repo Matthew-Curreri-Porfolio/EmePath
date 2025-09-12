@@ -32,7 +32,7 @@ for (const file of migrationFiles) {
   db.exec(sql);
 }
 
-function run(sql, params = []) {
+export function run(sql, params = []) {
   try {
     const stmt = db.prepare(sql);
     const info = stmt.run(params);
@@ -41,11 +41,20 @@ function run(sql, params = []) {
     throw err;
   }
 }
-function get(sql, params = []) {
+export function get(sql, params = []) {
   try {
     const stmt = db.prepare(sql);
     const row = stmt.get(params);
     return row;
+  } catch (err) {
+    throw err;
+  }
+}
+
+export function all(sql, params = []) {
+  try {
+    const stmt = db.prepare(sql);
+    return stmt.all(params);
   } catch (err) {
     throw err;
   }
@@ -135,4 +144,7 @@ export default {
   listForecasts,
   listDueForecasts,
   resolveForecast,
+  run,
+  get,
+  all,
 };

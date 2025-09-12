@@ -5,8 +5,8 @@ set -euo pipefail
 # Config (override via env)
 # ------------------------------------------------------------------------------
 LHOST="${LHOST:-127.0.0.1}"
-LPORT="${LPORT:-11434}"
-GATEWAY_PORT="${GATEWAY_PORT:-3030}"
+LPORT="${LLAMACPP_PORT:-${LPORT:-11434}}"
+GATEWAY_PORT="${GATEWAY_PORT:-3123}"
 BASE="${BASE:-http://127.0.0.1:${GATEWAY_PORT}}"
 
 LLAMA_BIN="${LLAMA_BIN:-./llama.cpp/build/bin/llama-server}"

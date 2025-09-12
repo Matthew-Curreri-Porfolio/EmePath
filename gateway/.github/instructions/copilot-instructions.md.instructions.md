@@ -114,9 +114,9 @@ If semantic code tools are missing, add a generic MCP language server to expose 
 
 Repo Orientation
 
-gateway/: Express service (port 3030). Endpoints: /scan, /query, /complete, /chat, /warmup. Index lives in RAM; restart requires re-/scan.
+gateway/: Express service (port 3123). Endpoints: /scan, /query, /complete, /chat, /warmup. Index lives in RAM; restart requires re-/scan.
 
-extension/: VS Code extension (inline completions + chat webview). Points at gateway (http://127.0.0.1:3030).
+extension/: VS Code extension (inline completions + chat webview). Points at gateway (http://127.0.0.1:3123).
 
 indexer/: fast-glob indexing demo.
 
@@ -138,7 +138,7 @@ VERBOSE=1 LOG_BODY=1 npm --prefix gateway run start
 
 Extension dev host:
 
-OSS_CODEX_GATEWAY=http://127.0.0.1:3030 npm run extension:devhost
+OSS_CODEX_GATEWAY=http://127.0.0.1:3123 npm run extension:devhost
 
 Logs: npm run logs:gateway
 
@@ -169,11 +169,11 @@ Warmup: POST /warmup → { model, keepAlive, timeoutMs }
 Models: GET /models → { models: [...] }
 
 Handy cURL
-curl -s http://127.0.0.1:3030/health | jq .
-curl -sS -X POST http://127.0.0.1:3030/scan -H 'content-type: application/json' -d '{"root":"'$PWD'","maxFileSize":262144}' | jq .
-curl -sS -X POST http://127.0.0.1:3030/query -H 'content-type: application/json' -d '{"q":"entry points OR server.js","k":6}' | jq .
-curl -sS -X POST http://127.0.0.1:3030/chat -H 'content-type: application/json' -d '{"messages":[{"role":"user","content":"Hello"}]}' | jq .
-curl -sS -X POST http://127.0.0.1:3030/chat -H 'content-type: application/json' -d '{"model":"qwen2.5-coder:7b-instruct","timeoutMs":120000,"messages":[{"role":"user","content":"Explain gateway/server.js"}]}' | jq .
+curl -s http://127.0.0.1:3123/health | jq .
+curl -sS -X POST http://127.0.0.1:3123/scan -H 'content-type: application/json' -d '{"root":"'$PWD'","maxFileSize":262144}' | jq .
+curl -sS -X POST http://127.0.0.1:3123/query -H 'content-type: application/json' -d '{"q":"entry points OR server.js","k":6}' | jq .
+curl -sS -X POST http://127.0.0.1:3123/chat -H 'content-type: application/json' -d '{"messages":[{"role":"user","content":"Hello"}]}' | jq .
+curl -sS -X POST http://127.0.0.1:3123/chat -H 'content-type: application/json' -d '{"model":"qwen2.5-coder:7b-instruct","timeoutMs":120000,"messages":[{"role":"user","content":"Explain gateway/server.js"}]}' | jq .
 
 VS Code Helpers (optional)
 
@@ -188,7 +188,7 @@ VS Code Helpers (optional)
       "request": "launch",
       "runtimeExecutable": "code",
       "args": ["--extensionDevelopmentPath=${workspaceFolder}/extension"],
-      "env": { "OSS_CODEX_GATEWAY": "http://127.0.0.1:3030" }
+      "env": { "OSS_CODEX_GATEWAY": "http://127.0.0.1:3123" }
     }
   ]
 }

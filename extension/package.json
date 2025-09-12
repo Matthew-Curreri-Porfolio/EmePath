@@ -18,7 +18,7 @@
       "properties": {
         "codexz.gatewayUrl": {
           "type": "string",
-          "default": "http://127.0.0.1:3030",
+          "default": "http://127.0.0.1:3123",
           "description": "Gateway base URL."
         },
         "codexz.inlineEnabled": {
