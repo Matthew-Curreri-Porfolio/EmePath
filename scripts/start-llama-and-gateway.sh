@@ -11,7 +11,7 @@ BASE="${BASE:-http://127.0.0.1:${GATEWAY_PORT}}"
 
 LLAMA_BIN="${LLAMA_BIN:-./llama.cpp/build/bin/llama-server}"
 LLAMA_CLI="${LLAMA_CLI:-./llama.cpp/build/bin/llama-cli}"   # optional (deep probing)
-MODEL_ARG="${MODEL_ARG:-}"                                   # Ollama ID OR /abs/path/to/model.gguf
+MODEL_ARG="SimonPu/gpt-oss:20b_Q4"                                   # Ollama ID OR /abs/path/to/model.gguf
 DEEP="${DEEP:-0}"                                            # 1 = probe max -ngl with llama-cli
 WRITE_PROFILE="${WRITE_PROFILE:-1}"                          # 1 = write JSON (optional)
 RESTART_GATEWAY="${RESTART_GATEWAY:-1}"                      # 1 = restart gateway binding to LLAMACPP_SERVER
