@@ -1,3 +1,4 @@
+import { registerToolCall } from "./toolcall.js";
 // gateway/routes/index.js
 // Registers all route handlers with the Express app.
 
@@ -97,6 +98,9 @@ export default function registerRoutes(app, deps) {
 
   // Agentic routes
   registerAgentic(app, deps, { chatLimiter, searchLimiter, researchLimiter, answerLimiter, insightsLimiter, graphLimiter, debateLimiter, planLimiter, trainLimiter, forecastLimiter, compressLimiter });
+
+  // Tool Call dispatcher
+  registerToolCall(app, deps);
 
   // Private routes
   registerPrivate(app, deps, { memoryLimiter });
