@@ -63,3 +63,13 @@ gateway/rooms/tests/smoke.rooms.test.js
 - Input: none.
 - Output: Logs rooms smoke ok …
 - Method: Builds a task and runs runTask with default deps.
+
+gateway/routes/tests/modelResolver.test.js
+- Description: Unit tests for model resolver (absolute .gguf path handling).
+- Input: temp .gguf file path.
+- Output: Asserts resolver returns { path, source: 'direct' }.
+- Method: Writes temp file, calls resolveModelPath, validates fields via Vitest.
+
+Test Runner
+- package.json scripts: `test` (vitest run), `test:watch` (vitest).
+- Configured via vitest.config.ts (5-minute timeout).

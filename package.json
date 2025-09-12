@@ -15,6 +15,11 @@
     "lint": "eslint \"gateway/**/*.{js,mjs,cjs}\"",
     "format": "prettier --write .",
     "py:lint": "ruff check gateway/tools",
-    "py:format": "black gateway/tools"
+    "py:format": "black gateway/tools",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4"
   }
 }

@@ -11,6 +11,10 @@ BASE="${BASE:-http://127.0.0.1:${GATEWAY_PORT}}"
 
 LLAMA_BIN="${LLAMA_BIN:-./llama.cpp/build/bin/llama-server}"
 LLAMA_CLI="${LLAMA_CLI:-./llama.cpp/build/bin/llama-cli}"   # optional (deep probing)
+# Allow overriding llama.cpp binary path via LLAMACPP_SERVER_BIN
+if [[ -n "${LLAMACPP_SERVER_BIN:-}" ]]; then
+  LLAMA_BIN="${LLAMACPP_SERVER_BIN}"
+fi
 MODEL_ARG="SimonPu/gpt-oss:20b_Q4"                                   # Ollama ID OR /abs/path/to/model.gguf
 DEEP="${DEEP:-0}"                                            # 1 = probe max -ngl with llama-cli
 WRITE_PROFILE="${WRITE_PROFILE:-1}"                          # 1 = write JSON (optional)
@@ -233,11 +237,84 @@ probe_max_ngl() { # modelPath
 }
 
 # ------------------------------------------------------------------------------
+# Helper: auto-build llama.cpp + stop services
+# ------------------------------------------------------------------------------
+
+auto_build_llama() {
+  echo "[*] Attempting to auto-build llama.cpp (server) …"
+  need git; need cmake
+  local SRC_DIR="./llama.cpp"
+  local BUILD_DIR="$SRC_DIR/build"
+  if [[ ! -d "$SRC_DIR" ]]; then
+    echo "[*] Cloning llama.cpp into $SRC_DIR"
+    git clone https://github.com/ggerganov/llama.cpp.git "$SRC_DIR" || return 1
+  fi
+  local FLAGS="-DCMAKE_BUILD_TYPE=Release"
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    FLAGS="$FLAGS -DGGML_CUDA=ON"
+  elif command -v rocm-smi >/dev/null 2>&1 || command -v rocminfo >/dev/null 2>&1; then
+    FLAGS="$FLAGS -DGGML_HIPBLAS=ON"
+  fi
+  echo "[*] cmake $FLAGS"
+  cmake -S "$SRC_DIR" -B "$BUILD_DIR" $FLAGS || return 1
+  cmake --build "$BUILD_DIR" -j || return 1
+  if [[ -x "$LLAMA_BIN" ]]; then
+    echo "[*] Built $LLAMA_BIN"
+    return 0
+  else
+    echo "ERR: build finished but $LLAMA_BIN not found" >&2
+    return 1
+  fi
+}
+
+stop_services() {
+  echo "[*] Stopping services …"
+  # Kill gateway by port
+  kill_on_port "${GATEWAY_PORT}"
+  # Kill common llama-server port; also try by process name
+  kill_on_port 11434 || true
+  if pgrep -x "llama-server" >/dev/null 2>&1; then
+    pkill -x "llama-server" || true
+  fi
+  echo "[*] Stopped (gateway :$GATEWAY_PORT, llama-server :11434 if present)"
+}
+
+# ------------------------------------------------------------------------------
 # Main
 # ------------------------------------------------------------------------------
 main() {
+  # Parse simple actions
+  local ACTION="start"
+  for arg in "$@"; do
+    case "$arg" in
+      --stop|stop) ACTION="stop" ;;
+      --restart|restart) ACTION="start"; RESTART_GATEWAY=1 ;;
+    esac
+  done
+
   need lsof; need curl
-  [[ -x "$LLAMA_BIN" ]] || { echo "ERR: $LLAMA_BIN not found/executable"; exit 1; }
+
+  if [[ "$ACTION" == "stop" ]]; then
+    stop_services
+    exit 0
+  fi
+
+  # If external server provided and reachable, use it and skip local spawn
+  local USE_EXTERNAL=0
+  if [[ -n "${LLAMACPP_SERVER:-}" ]]; then
+    if wait_http_ok "${LLAMACPP_SERVER%/}/health" GET "" 3 || \
+       wait_http_ok "${LLAMACPP_SERVER%/}/v1/models" GET "" 3; then
+      echo "[*] Using external LLAMACPP_SERVER=$LLAMACPP_SERVER"
+      USE_EXTERNAL=1
+    else
+      echo "[!] LLAMACPP_SERVER set but not reachable; will try local binary"
+    fi
+  fi
+
+  # Ensure llama-server exists or attempt auto-build if we need local
+  if [[ "$USE_EXTERNAL" != "1" && ! -x "$LLAMA_BIN" ]]; then
+    auto_build_llama || { echo "ERR: $LLAMA_BIN not found/executable and auto-build failed"; exit 1; }
+  fi
 
   mkdir -p "$LOG_DIR" gateway/db
 
@@ -277,27 +354,33 @@ main() {
 
   echo "[*] Params: -ngl $NGL --threads $THREADS --ctx-size $CTX --batch-size $BATCH --ubatch-size $UBATCH"
 
-  # Start llama-server
-  kill_on_port "$LPORT"
-  echo "[*] Starting llama-server on $LHOST:$LPORT …"
-  nohup "$LLAMA_BIN" \
-    -m "$MODEL_PATH" \
-    --host "$LHOST" --port "$LPORT" \
-    --ctx-size "$CTX" --batch-size "$BATCH" --ubatch-size "$UBATCH" \
-    -ngl "$NGL" --threads "$THREADS" --flash-attn auto \
-    > "$LLAMA_LOG" 2>&1 & disown
-  sleep 1
+  # Start llama-server if not using external
+  if [[ "$USE_EXTERNAL" != "1" ]]; then
+    kill_on_port "$LPORT"
+    echo "[*] Starting llama-server on $LHOST:$LPORT …"
+    nohup "$LLAMA_BIN" \
+      -m "$MODEL_PATH" \
+      --host "$LHOST" --port "$LPORT" \
+      --ctx-size "$CTX" --batch-size "$BATCH" --ubatch-size "$UBATCH" \
+      -ngl "$NGL" --threads "$THREADS" --flash-attn auto \
+      > "$LLAMA_LOG" 2>&1 & disown
+    sleep 1
 
-  # llama.cpp expects GET /v1/models – not POST
-  if ! wait_http_ok "http://$LHOST:$LPORT/v1/models" GET "" 45; then
-    echo "ERR: llama-server not ready on http://$LHOST:$LPORT"
-    tail -n 120 "$LLAMA_LOG" || true
-    exit 4
+    # llama.cpp expects GET /v1/models – not POST
+    if ! wait_http_ok "http://$LHOST:$LPORT/v1/models" GET "" 45; then
+      echo "ERR: llama-server not ready on http://$LHOST:$LPORT"
+      tail -n 120 "$LLAMA_LOG" || true
+      exit 4
+    fi
+    echo "[*] llama-server is ready @ http://$LHOST:$LPORT"
+  else
+    echo "[*] Skipping local llama-server; using external $LLAMACPP_SERVER"
   fi
-  echo "[*] llama-server is ready @ http://$LHOST:$LPORT"
 
   # Optionally restart gateway pointing to this server
-  export LLAMACPP_SERVER="http://$LHOST:$LPORT"
+  if [[ -z "${LLAMACPP_SERVER:-}" ]]; then
+    export LLAMACPP_SERVER="http://$LHOST:$LPORT"
+  fi
   if [[ "$RESTART_GATEWAY" = "1" ]]; then
     echo "[*] Restarting gateway on :$GATEWAY_PORT with LLAMACPP_SERVER=$LLAMACPP_SERVER …"
     kill_on_port "$GATEWAY_PORT"

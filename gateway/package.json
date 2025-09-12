@@ -7,6 +7,9 @@
   "scripts": {
     "dev": "nodemon --ext js --watch . server.js",
     "start": "node server.js",
+    "start:all": "bash ../scripts/start-llama-and-gateway.sh",
+    "restart": "bash ../scripts/start-llama-and-gateway.sh --restart",
+    "stop": "bash ../scripts/start-llama-and-gateway.sh --stop",
     "lint": "eslint .",
     "format": "prettier -w .",
     "check": "node -e \"require('fs').accessSync('server.js')\" && echo OK",

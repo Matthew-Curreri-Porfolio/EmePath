@@ -2,10 +2,10 @@
 -- Target: SQLite (current file). For Postgres, see commented variant below.
 
 -- short_term_memory: add working_tokens BLOB column (nullable, additive)
-ALTER TABLE short_term_memory ADD COLUMN working_tokens BLOB;
+-- ALTER TABLE short_term_memory ADD COLUMN working_tokens BLOB;
 
 -- long_term_memory: add working_tokens BLOB column (nullable, additive)
-ALTER TABLE long_term_memory ADD COLUMN working_tokens BLOB;
+-- ALTER TABLE long_term_memory ADD COLUMN working_tokens BLOB;
 
 -- Optional: an index to query rows that have snapshots
 -- CREATE INDEX IF NOT EXISTS idx_short_term_working_tokens ON short_term_memory(working_tokens);

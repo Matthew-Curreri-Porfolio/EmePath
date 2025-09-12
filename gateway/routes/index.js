@@ -29,7 +29,7 @@ import { searchWhoogle } from "../tools/whoogle.js";
 import { searchCurated as searchCuratedLocal } from "../tools/curated/search.mjs";
 import { researchWeb } from "../tools/research.js";
 import { answerWeb } from "../tools/answers.js";
-import { registerModelResolver } from "./modelResolver.js";
+import { registerModelResolver, resolveModelPath } from "./modelResolver.js";
 
 import { validate } from "../middleware/validate.js";
 import {
@@ -100,15 +100,8 @@ export default function registerRoutes(app, deps) {
 
   // Private routes
   registerPrivate(app, deps, { memoryLimiter });
-  // Model resolver
-  app.get("/model/resolve", (req, res) => {
-    try {
-      registerModelResolver(app, deps);
-      res.json({ ok: true });
-    } catch (e) {
-      res.status(500).json({ ok: false, error: (e && e.message) || String(e) });
-    }
-  });
+  // Model resolver (mount once at startup)
+  registerModelResolver(app, deps);
   // Training
   app.get("/user/training", requireAuth, trainingLimiter, async (req, res) => {
     await trainingGet(req, res);

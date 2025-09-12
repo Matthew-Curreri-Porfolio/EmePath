@@ -27,9 +27,58 @@ const migrationFiles = fs
   .readdirSync(MIGRATIONS_DIR)
   .filter((f) => f.endsWith('.sql'))
   .sort();
+// Idempotent helper to add columns only if missing
+function hasColumn(dbInst, table, column) {
+  try {
+    const rows = dbInst.prepare(`PRAGMA table_info(${table})`).all();
+    return rows.some((r) => r.name === column);
+  } catch {
+    return false;
+  }
+}
+function ensureColumn(dbInst, table, column, type) {
+  if (!hasColumn(dbInst, table, column)) {
+    dbInst.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type};`);
+  }
+}
+
 for (const file of migrationFiles) {
   const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8');
-  db.exec(sql);
+  try {
+    db.exec(sql);
+  } catch (e) {
+    const msg = String((e && e.message) || e);
+    if (/duplicate column name:\s*working_tokens/i.test(msg)) {
+      console.warn('[migrate] working_tokens already present, skipping');
+    } else {
+      throw e;
+    }
+  }
+}
+
+// Ensure columns exist even if migration was commented/ran before
+try {
+  ensureColumn(db, 'short_term_memory', 'working_tokens', 'BLOB');
+  ensureColumn(db, 'long_term_memory', 'working_tokens', 'BLOB');
+} catch (e) {
+  const msg = String((e && e.message) || e);
+  if (/duplicate column name:\s*working_tokens/i.test(msg)) {
+    console.warn('[ensure] working_tokens already present, skipping');
+  } else {
+    throw e;
+  }
+}
+
+// Bootstrap a default admin user for development/testing if no users exist
+try {
+  const row = db.prepare('SELECT COUNT(1) AS c FROM users').get();
+  if (!row || Number(row.c) === 0) {
+    db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run(['admin', 'changethis']);
+    console.log('[bootstrap] created default admin user with password "changethis"');
+  }
+} catch (e) {
+  // ignore if table not ready or any race in tests
+  console.warn('[bootstrap] default admin check failed:', String(e && e.message || e));
 }
 
 export function run(sql, params = []) {

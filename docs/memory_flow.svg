@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1400" height="880" viewBox="0 0 1400 880" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <style>
+    .box { fill:#f7f7f7; stroke:#333; stroke-width:1.5; rx:8; ry:8; }
+    .ingest { fill:#fff8e6; stroke:#c58600; }
+    .memory { fill:#fff5f7; stroke:#b0006a; }
+    .orch { fill:#e9fff0; stroke:#057a3a; }
+    .model { fill:#eef6ff; stroke:#1e5fbf; }
+    .text { font-family: Inter, Arial, sans-serif; font-size:14px; fill:#111; }
+    .title { font-weight:700; font-size:16px; }
+    .small { font-size:12px; fill:#333; }
+    .arrow { stroke:#444; stroke-width:2; fill:none; marker-end:url(#arrowhead); }
+  </style>
+
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#444"/>
+    </marker>
+  </defs>
+
+  <!-- Ingest -->
+  <g transform="translate(40,40)">
+    <rect x="0" y="0" width="320" height="70" class="box ingest"/>
+    <text x="16" y="24" class="text title">Curated Sources</text>
+    <text x="16" y="44" class="text small">arXiv · Wikipedia · MDN · PubMed · ...</text>
+
+    <rect x="0" y="96" width="320" height="70" class="box ingest"/>
+    <text x="16" y="120" class="text title">Ingest Adapters</text>
+    <text x="16" y="140" class="text small">dedupe · stable-id · normalize</text>
+  </g>
+
+  <!-- Encoder Bridge -->
+  <g transform="translate(420,40)">
+    <rect x="0" y="24" width="300" height="70" class="box memory"/>
+    <text x="14" y="48" class="text title">Encoder Bridge</text>
+    <text x="14" y="68" class="text small">rax1_codec.py (primary) · JSON fallback</text>
+
+    <rect x="0" y="116" width="300" height="90" class="box memory"/>
+    <text x="14" y="140" class="text title">Encoded Memory</text>
+    <text x="14" y="160" class="text small">DB: working_tokens BLOB</text>
+    <text x="14" y="178" class="text small">codec_version · metadata · provenance</text>
+
+    <rect x="0" y="228" width="300" height="70" class="box memory"/>
+    <text x="14" y="252" class="text title">DB Manager</text>
+    <text x="14" y="272" class="text small">re-encode / migrations</text>
+  </g>
+
+  <!-- Orchestration -->
+  <g transform="translate(780,32)">
+    <rect x="0" y="0" width="480" height="86" class="box orch"/>
+    <text x="16" y="22" class="text title">Orchestrator / Rooms</text>
+    <text x="16" y="42" class="text small">dispatch, checkpoint, run tasks</text>
+
+    <rect x="0" y="110" width="220" height="70" class="box orch"/>
+    <text x="12" y="136" class="text title">Experiment Manager</text>
+    <text x="12" y="154" class="text small">templates · jobs · artifacts</text>
+
+    <rect x="260" y="110" width="220" height="70" class="box orch"/>
+    <text x="270" y="136" class="text title">Data Analyzer</text>
+    <text x="270" y="154" class="text small">metrics · plots · summaries</text>
+
+    <rect x="0" y="208" width="480" height="70" class="box orch"/>
+    <text x="16" y="234" class="text title">Report Writer</text>
+    <text x="16" y="254" class="text small">consumes memory + artifacts → drafts</text>
+  </g>
+
+  <!-- Models -->
+  <g transform="translate(180,360)">
+    <rect x="0" y="0" width="300" height="76" class="box model"/>
+    <text x="14" y="24" class="text title">Model A</text>
+    <text x="14" y="46" class="text small">API or local LLM (current)</text>
+
+    <rect x="360" y="0" width="300" height="76" class="box model"/>
+    <text x="374" y="24" class="text title">Model B</text>
+    <text x="374" y="46" class="text small">Open-source / alternative</text>
+  </g>
+
+  <!-- Arrows and links -->
+  <!-- Ingest -> Encoder -->
+  <path class="arrow" d="M360 75 L420 75" />
+
+  <!-- Encoder -> Encoded Memory (inside same group visually) -->
+  <!-- Encoded Memory already shown; add arrow to Orchestrator -->
+  <path class="arrow" d="M720 160 L780 160" />
+
+  <!-- Orchestrator -> Experiment Manager -->
+  <path class="arrow" d="M900 86 L900 110" />
+
+  <!-- Experiment Manager -> Analyzer -> Report Writer (arrows) -->
+  <path class="arrow" d="M220 380 L420 380" transform="translate(560,0)" />
+  <path class="arrow" d="M1000 180 L1000 208" />
+
+  <!-- Encoded Memory -> Models -->
+  <path class="arrow" d="M560 250 L380 360" />
+  <path class="arrow" d="M710 250 L660 360" />
+
+  <!-- Models -> Encoded Memory (writing artifacts back) -->
+  <path class="arrow" d="M420 420 L560 320" />
+  <path class="arrow" d="M780 420 L700 320" />
+
+  <!-- Orchestrator -> checkpoint to Encoded Memory -->
+  <path class="arrow" d="M820 64 L720 140" />
+
+  <!-- Trigger re-encode (Orchestrator -> DB Manager) -->
+  <path class="arrow" d="M900 200 L720 260" />
+
+  <!-- Title -->
+  <text x="40" y="820" class="small">Diagram: Encoded Memory lifecycle, hot-swapable models, re-encode migrations, and report export.</text>
+</svg>
