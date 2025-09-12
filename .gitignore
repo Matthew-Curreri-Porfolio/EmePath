@@ -57,3 +57,4 @@ Thumbs.db
 /net-commander
 gateway/tools/curated/cache/*.jsonl
 gateway/tools/curated/cache/*.json
+llama.cpp/
