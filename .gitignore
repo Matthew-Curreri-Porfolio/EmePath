@@ -7,6 +7,8 @@
 # If you want to share workspace settings too, uncomment:
 # !.vscode/settings.json
 
+# Ignore backups with .bak extension
+*.bak
 # VS Code packaged extensions
 *.vsix
 
