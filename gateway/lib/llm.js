@@ -40,8 +40,13 @@ function normalizeMessages(messages=[]) {
   }));
 }
 
-export async function chat({ messages, model, temperature=0.2, maxTokens=DEFAULT_MAX_TOKENS, timeoutMs=120000 }) {
-  const msgs = normalizeMessages(messages);
+export async function chat({ messages, model, temperature=0.2, maxTokens=DEFAULT_MAX_TOKENS, timeoutMs=120000, outputContract, json=false }) {
+  const baseMsgs = normalizeMessages(messages);
+  const msgs = outputContract ? [
+    { role: 'system', content: 'Output Contract: Respond ONLY with content that strictly matches the contract. Do not include explanations, prefaces, or trailing commentary. If you cannot comply, output a JSON error {"error":"contract_violation"}.' },
+    { role: 'system', content: String(outputContract) },
+    ...baseMsgs,
+  ] : baseMsgs;
   if (SERVER) {
     // llama-server OpenAI-ish endpoint
     const url = `${SERVER.replace(/\/$/,'')}/v1/chat/completions`;
@@ -52,6 +57,7 @@ export async function chat({ messages, model, temperature=0.2, maxTokens=DEFAULT
       max_tokens: maxTokens,
       stream: false
     };
+    if (json) body.response_format = { type: 'json_object' };
     const data = await httpPost(url, body, timeoutMs);
     const content = data?.choices?.[0]?.message?.content ?? '';
     return { content, raw: data };

@@ -6,17 +6,30 @@
       "Transformer_(machine_learning_model)",
       "Large_language_model",
       "Reinforcement_learning",
-      "Backpropagation"
+      "Backpropagation",
+      "Vector_database",
+      "Retrieval-augmented_generation",
+      "Named-entity_recognition",
+      "Knowledge_graph",
+      "PageRank",
+      "Graph_neural_network",
+      "Support-vector_machine",
+      "Gradient_descent",
+      "Markdown",
+      "Hypertext_Transfer_Protocol",
+      "Representational_state_transfer"
     ]
   },
-  "mdn": { "limit": 30 },
+  "mdn": { "limit": 60 },
   "arxiv": [
-    { "query": "all:transformers", "limit": 15 },
-    { "query": "all:large+language+models", "limit": 15 }
+    { "query": "all:transformers", "limit": 25 },
+    { "query": "all:large+language+models", "limit": 25 },
+    { "query": "ti:retrieval+OR+ti:RAG+OR+abs:retrieval", "limit": 20 },
+    { "query": "ti:vector+databases+OR+abs:vector+search", "limit": 15 }
   ],
   "pubmed": [
-    { "query": "diabetes+type+2", "limit": 15 },
-    { "query": "alzheimers+disease", "limit": 15 }
+    { "query": "diabetes+type+2", "limit": 20 },
+    { "query": "alzheimers+disease", "limit": 20 },
+    { "query": "cardiovascular+disease+biomarkers", "limit": 15 }
   ]
 }
-

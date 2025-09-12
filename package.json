@@ -5,7 +5,8 @@
   "scripts": {
     "curated:ingest:starter": "node gateway/scripts/ingest_starter_curated.mjs",
     "curated:ingest:starter:bash": "bash gateway/scripts/ingest_starter_curated.sh",
-    "curated:search:test": "node gateway/scripts/test_curated_search.js"
+    "curated:search:test": "node gateway/scripts/test_curated_search.js",
+    "curated:ingest:nightly": "node gateway/scripts/ingest_nightly_curated.mjs",
+    "annotate:text": "node gateway/scripts/annotate_text.mjs"
   }
 }
-
