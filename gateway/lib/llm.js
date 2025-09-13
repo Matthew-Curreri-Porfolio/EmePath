@@ -34,6 +34,17 @@ async function httpPost(url, body, timeoutMs=120000) {
   } finally { clearTimeout(t); }
 }
 
+async function httpGet(url, timeoutMs=120000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { method:'GET', headers:{}, signal: ctrl.signal });
+    const txt = await r.text();
+    if (!r.ok) throw new Error(`HTTP ${r.status} ${txt.slice(0,200)}`);
+    try { return JSON.parse(txt); } catch { return txt; }
+  } finally { clearTimeout(t); }
+}
+
 function normalizeMessages(messages=[]) {
   // minimal hygiene: ensure strings and roles exist
   return (messages || []).map(m => ({
@@ -103,7 +114,7 @@ export async function warmup({ model, timeoutMs=60000 }) {
   const SERVER = getSERVER();
   if (SERVER) {
     try {
-      const models = await httpPost(`${SERVER.replace(/\/$/,'')}/v1/models`, {}, timeoutMs);
+      const models = await httpGet(`${SERVER.replace(/\/$/,'')}/v1/models`, timeoutMs);
       return { ok: true, via: 'server', models };
     } catch (e) {
       return { ok: false, error: String(e.message||e) };
@@ -125,7 +136,7 @@ export async function listModels() {
   const SERVER = getSERVER();
   if (SERVER) {
     try {
-      const d = await httpPost(`${SERVER.replace(/\/$/,'')}/v1/models`, {});
+      const d = await httpGet(`${SERVER.replace(/\/$/,'')}/v1/models`);
       const names = Array.isArray(d?.data) ? d.data.map(x => x.id || x.name || 'default') : [];
       return names.length ? names : ['default'];
     } catch {

@@ -19,9 +19,8 @@ export function registerPublic(app, deps) {
     }
     try {
       const r = await fetch(`${base}/v1/models`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: "{}",
+        method: "GET",
+        headers: {},
         signal: AbortSignal.timeout(3000),
       });
       return res.status(r.ok ? 200 : 503).json({ ok: r.ok, upstream: "llama.cpp-server", status: r.status });

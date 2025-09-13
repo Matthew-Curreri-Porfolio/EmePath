@@ -110,82 +110,30 @@ detect_gpu() {
 }
 
 # ------------------------------------------------------------------------------
-# Model resolution (Ollama ID -> GGUF or absolute path passthrough)
+# Model resolution (Gateway API or absolute path passthrough)
 # ------------------------------------------------------------------------------
-discover_ollama_roots() {
-  local roots=()
-  [[ -d "$HOME/.ollama/models" ]] && roots+=("$HOME/.ollama/models")
-  [[ -d "/root/.ollama/models" ]] && roots+=("/root/.ollama/models")
-  [[ -d "/var/snap/ollama/common/models" ]] && roots+=("/var/snap/ollama/common/models")
-  [[ -d "/var/lib/ollama/models" ]] && roots+=("/var/lib/ollama/models")
-  [[ -d "/usr/local/var/ollama/models" ]] && roots+=("/usr/local/var/ollama/models")
-  [[ -d "/opt/homebrew/var/ollama/models" ]] && roots+=("/opt/homebrew/var/ollama/models")
-  [[ -d "/usr/share/ollama/.ollama/models" ]] && roots+=("/usr/share/ollama/.ollama/models")
-  echo "${roots[*]}"
-}
-
-try_blob_paths() {
-  local tok="$1" roots; roots="$(discover_ollama_roots)"
-  for root in $roots; do
-    for nm in "$tok" "sha256-$tok"; do
-      for sub in "blobs/$nm" "$nm"; do
-        local p="$root/$sub"
-        [[ -f "$p" ]] && { echo "$p"; return 0; }
-      done
-    done
-  done
-  return 1
-}
-
-scan_newest_gguf_blob() {
-  local roots; roots="$(discover_ollama_roots)"
-  local cands=""
-  for r in $roots; do
-    [[ -d "$r/blobs" ]] && cands+=$'\n'"$(find "$r/blobs" -maxdepth 1 -type f -size +500M -printf "%T@ %p\n" 2>/dev/null)"
-  done
-  cands="$(echo "$cands" | sed '/^\s*$/d' | sort -nr | awk '{print $2}')"
-  local f
-  for f in $cands; do
-    if dd if="$f" bs=1 count=4 2>/dev/null | grep -qx "GGUF"; then
-      echo "$f"; return 0
-    fi
-  done
-  return 1
-}
-
 resolve_model_path() {
   local arg="$1"
   if [[ -z "$arg" ]]; then echo "ERR: MODEL_ARG required" >&2; return 1; fi
   if [[ "$arg" = /* && -f "$arg" ]]; then echo "$arg"; return 0; fi
-  if ! command -v ollama >/dev/null 2>&1; then
-    echo "ERR: 'ollama' not found to resolve model id '$arg'. Provide an absolute .gguf path in MODEL_ARG." >&2
+
+  # Use gateway to resolve model name. Assumes gateway is running.
+  # Requires `jq` for URL encoding and JSON parsing.
+  local encoded_arg
+  encoded_arg=$(jq -nr --arg s "$arg" '$s|@uri')
+  local model_path
+  model_path=$(curl -fsS "$BASE/api/v1/models/resolve?model=$encoded_arg" | jq -r '.path // ""')
+
+  if [[ -n "$model_path" && -f "$model_path" ]]; then
+    echo "$model_path"
+    return 0
+  else
+    echo "ERR: Could not resolve model id '$arg' via gateway API at $BASE" >&2
+    echo "ERR: Gateway response was: $(curl -fsS "$BASE/api/v1/models/resolve?model=$encoded_arg")" >&2
     return 1
   fi
-
-  # Follow FROM chain in the Modelfile (no JSON flags required)
-  local cur="$arg" tries=0
-  while (( tries < 4 )); do
-    local mf tok p
-    mf="$(ollama show --modelfile "$cur" 2>/dev/null || true)"
-    if ! grep -qE '^FROM[[:space:]]+' <<<"$mf"; then
-      ollama pull "$cur" >/dev/null 2>&1 || true
-      mf="$(ollama show --modelfile "$cur" 2>/dev/null || true)"
-    fi
-    tok="$(awk '/^FROM[[:space:]]+/ {print $2; exit}' <<<"$mf")"
-    [[ -z "$tok" ]] && break
-    p="$(try_blob_paths "$tok" || true)"
-    [[ -n "$p" ]] && { echo "$p"; return 0; }
-    cur="$tok"; tries=$((tries+1))
-  done
-
-  # Fallback: newest GGUF blob across all known stores
-  if p="$(scan_newest_gguf_blob)"; then
-    echo "$p"; return 0
-  fi
-
-  echo "ERR: Could not resolve Ollama id '$arg' to a local GGUF blob." >&2
-  return 1
 }
+
 
 # ------------------------------------------------------------------------------
 # Parameter heuristics (safe defaults + optional deep probe for -ngl)
@@ -273,7 +221,8 @@ stop_services() {
   kill_on_port "${GATEWAY_PORT}"
   # Kill common llama-server port; also try by process name
   kill_on_port 11434 || true
-  if pgrep -x "llama-server" >/dev/null 2>&1; then
+  if pgrep -x "llama-server" >/dev/null 2>&1;
+  then
     pkill -x "llama-server" || true
   fi
   echo "[*] Stopped (gateway :$GATEWAY_PORT, llama-server :11434 if present)"
@@ -287,12 +236,12 @@ main() {
   local ACTION="start"
   for arg in "$@"; do
     case "$arg" in
-      --stop|stop) ACTION="stop" ;;
-      --restart|restart) ACTION="start"; RESTART_GATEWAY=1 ;;
+      --stop|stop) ACTION="stop" ;; 
+      --restart|restart) ACTION="start"; RESTART_GATEWAY=1 ;; 
     esac
   done
 
-  need lsof; need curl
+  need lsof; need curl; need jq
 
   if [[ "$ACTION" == "stop" ]]; then
     stop_services
@@ -317,6 +266,15 @@ main() {
   fi
 
   mkdir -p "$LOG_DIR" gateway/db
+
+  # Start gateway temporarily to use its model resolution API
+  echo "[*] Starting gateway temporarily for model resolution..."
+  kill_on_port "$GATEWAY_PORT"
+  # Start gateway without LLAMACPP_SERVER, it won't be fully ready but /health should work
+  nohup npm --prefix gateway run start > "$GATEWAY_LOG" 2>&1 & disown
+  sleep 1
+  wait_http_ok "$BASE/health" GET "" 30 || { echo "ERR: gateway /health not ready for model resolution"; tail -n 20 "$GATEWAY_LOG"; exit 5; }
+  echo "[*] Gateway is up, resolving model..."
 
   # Resolve model
   if [[ -z "$MODEL_ARG" ]]; then
@@ -356,6 +314,19 @@ main() {
 
   # Start llama-server if not using external
   if [[ "$USE_EXTERNAL" != "1" ]]; then
+    # Optional overrides for freeform mode
+    EXTRA_LLAMA_ARGS=""
+    if [[ -n "${FREEFORM_MODEL_GGUF:-}" && -f "$FREEFORM_MODEL_GGUF" ]]; then
+      echo "[*] Using FREEFORM_MODEL_GGUF override: $FREEFORM_MODEL_GGUF"
+      MODEL_PATH="$FREEFORM_MODEL_GGUF"
+    fi
+    if [[ -n "${FREEFORM_LORA_GGUF:-}" && -f "$FREEFORM_LORA_GGUF" ]]; then
+      echo "[*] Applying FREEFORM_LORA_GGUF adapter: $FREEFORM_LORA_GGUF"
+      EXTRA_LLAMA_ARGS+=" --lora \"$FREEFORM_LORA_GGUF\""
+      if [[ -n "${FREEFORM_LORA_SCALE:-}" ]]; then
+        EXTRA_LLAMA_ARGS+=" --lora-scaled $FREEFORM_LORA_SCALE"
+      fi
+    fi
     kill_on_port "$LPORT"
     echo "[*] Starting llama-server on $LHOST:$LPORT …"
     nohup "$LLAMA_BIN" \
@@ -363,6 +334,7 @@ main() {
       --host "$LHOST" --port "$LPORT" \
       --ctx-size "$CTX" --batch-size "$BATCH" --ubatch-size "$UBATCH" \
       -ngl "$NGL" --threads "$THREADS" --flash-attn auto \
+      ${EXTRA_LLAMA_ARGS} \
       > "$LLAMA_LOG" 2>&1 & disown
     sleep 1
 
@@ -377,14 +349,54 @@ main() {
     echo "[*] Skipping local llama-server; using external $LLAMACPP_SERVER"
   fi
 
+  # Start Ollama-compatible proxy (Python FastAPI) by default
+  : "${OLLAMA_PROXY:=1}"
+  : "${OLLAMA_HOST:=127.0.0.1}"
+  : "${OLLAMA_PORT:=11434}"
+  OLLAMA_LOG="${OLLAMA_LOG:-/tmp/ollama_proxy.log}"
+  if [[ "$OLLAMA_PROXY" = "1" ]]; then
+    if [[ -z "${LLAMACPP_SERVER:-}" ]]; then
+      export LLAMACPP_SERVER="http://$LHOST:$LPORT"
+    fi
+    # Ensure python deps for the proxy are present
+    if ! python3 - <<'PY'
+try:
+    import fastapi, uvicorn, requests
+    print('OK')
+except Exception as e:
+    raise SystemExit(1)
+PY
+    then
+      echo "[*] Installing python dependencies for proxy (fastapi, uvicorn, requests)…"
+      python3 -m pip install --user fastapi uvicorn requests >/dev/null 2>&1 || true
+    fi
+    kill_on_port "$OLLAMA_PORT"
+    echo "[*] Starting Ollama-compatible proxy on $OLLAMA_HOST:$OLLAMA_PORT …"
+    nohup env LLAMACPP_SERVER="$LLAMACPP_SERVER" \
+      python3 gateway/scripts/llamacpp_ollama_proxy.py \
+      > "$OLLAMA_LOG" 2>&1 & disown
+    sleep 1
+    if ! wait_http_ok "http://$OLLAMA_HOST:$OLLAMA_PORT/api/tags" GET "" 30; then
+      echo "ERR: ollama proxy not ready on http://$OLLAMA_HOST:$OLLAMA_PORT" >&2
+      tail -n 120 "$OLLAMA_LOG" || true
+      exit 7
+    fi
+    echo "[*] Ollama proxy is ready @ http://$OLLAMA_HOST:$OLLAMA_PORT"
+  else
+    echo "[*] OLLAMA_PROXY=0 – skipping Ollama-compatible proxy"
+  fi
+
   # Optionally restart gateway pointing to this server
   if [[ -z "${LLAMACPP_SERVER:-}" ]]; then
     export LLAMACPP_SERVER="http://$LHOST:$LPORT"
   fi
+  if [[ -z "${OLLAMA_URL:-}" && "$OLLAMA_PROXY" = "1" ]]; then
+    export OLLAMA_URL="http://$OLLAMA_HOST:$OLLAMA_PORT"
+  fi
   if [[ "$RESTART_GATEWAY" = "1" ]]; then
-    echo "[*] Restarting gateway on :$GATEWAY_PORT with LLAMACPP_SERVER=$LLAMACPP_SERVER …"
+    echo "[*] Restarting gateway on :$GATEWAY_PORT with LLAMACPP_SERVER=$LLAMACPP_SERVER OLLAMA_URL=${OLLAMA_URL:-unset} …"
     kill_on_port "$GATEWAY_PORT"
-    nohup env LLAMACPP_SERVER="$LLAMACPP_SERVER" npm --prefix gateway run start > "$GATEWAY_LOG" 2>&1 & disown
+    nohup env LLAMACPP_SERVER="$LLAMACPP_SERVER" OLLAMA_URL="${OLLAMA_URL:-}" npm --prefix gateway run start > "$GATEWAY_LOG" 2>&1 & disown
     sleep 1
     wait_http_ok "$BASE/health" GET "" 30 || { echo "ERR: gateway /health not ready"; exit 5; }
     wait_http_ok "$BASE/ready"  GET "" 45 || { echo "ERR: gateway /ready not OK"; exit 6; }
@@ -405,7 +417,7 @@ main() {
       "type": "${GPU_VENDOR:-cpu}",
       "gpus": [{
         "vendor": "${GPU_VENDOR:-cpu}",
-        "name": "${GPU_NAME//\"/'}",
+        "name": "${GPU_NAME//"/'}",
         "memGiB": ${GPU_MEM_GIB:-0},
         "compute": "${GPU_CC:-}"
       }]
@@ -439,6 +451,7 @@ JSON
 
   echo "[*] Ready."
   echo "    - tail -f $LLAMA_LOG"
+  echo "    - tail -f $OLLAMA_LOG"
   echo "    - tail -f $GATEWAY_LOG"
   echo "    - curl -s http://127.0.0.1:$GATEWAY_PORT/health | jq ."
 }

@@ -20,11 +20,17 @@ function pickModel(body, defaultModel) {
   return defaultModel;
 }
 
-async function callOllamaChat(OLLAMA, model, messages, keepAlive){
-  const base = String(OLLAMA || '').replace(/\/$/,'');
-  const url = base + '/api/chat';
-  const payload = { model, messages, stream: false };
-  if (typeof keepAlive === 'string' && keepAlive.length > 0) payload.keep_alive = keepAlive;
+async function callOllamaChat(_OLLAMA, model, messages, _keepAlive){
+  // Updated: use llama.cpp OpenAI-style server for non-streaming chat
+  const base = String(process.env.LLAMACPP_SERVER || '').replace(/\/$/, '');
+  if (!base) throw new Error('LLAMACPP_SERVER not set');
+  const url = base + '/v1/chat/completions';
+  const payload = {
+    model: model || 'default',
+    messages: (messages || []).map(m => ({ role: m.role || 'user', content: String(m.content ?? '') })),
+    temperature: 0.2,
+    stream: false,
+  };
 
   const r = await fetch(url, {
     method: 'POST',
@@ -33,13 +39,12 @@ async function callOllamaChat(OLLAMA, model, messages, keepAlive){
   });
   if (!r.ok) {
     const txt = await r.text();
-    throw new Error('ollama chat failed: ' + r.status + ' ' + txt);
+    throw new Error('llama.cpp chat failed: ' + r.status + ' ' + txt);
   }
   const j = await r.json();
-  if (!j || !j.message || typeof j.message.content !== 'string') {
-    throw new Error('ollama chat bad response');
-  }
-  return j.message.content;
+  const content = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+  if (typeof content !== 'string') throw new Error('llama.cpp chat bad response');
+  return content;
 }
 
 function loraDistillerSystemPrompt(){
