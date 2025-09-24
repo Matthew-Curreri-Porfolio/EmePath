@@ -17,7 +17,7 @@ export async function chatUseCase(req, res, deps) {
       outputContract: body.outputContract, // optional strict contract text/JSON schema/example
       json: body.responseFormat === 'json' || Boolean(body.outputContract),
     });
-    res.json({ ok:true, content: r.content, raw: r.raw });
+    res.json({ ok: true, message: { role: 'assistant', content: r.content }, raw: r.raw });
   } catch (e) {
     res.status(502).json({ ok:false, error: String(e.message||e) });
   }

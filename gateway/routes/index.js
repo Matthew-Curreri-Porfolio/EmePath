@@ -104,6 +104,14 @@ export default function registerRoutes(app, deps) {
 
   // Private routes
   registerPrivate(app, deps, { memoryLimiter });
+
+  app.post("/chat", chatLimiter, validate(ChatSchema), async (req, res) => {
+    await chatUseCase(req, res, deps);
+  });
+
+  app.post("/warmup", validate(WarmupSchema), async (req, res) => {
+    await warmupUseCase(req, res, deps);
+  });
   // Model resolver (mount once at startup)
   registerModelResolver(app, deps);
   // Training

@@ -26,6 +26,13 @@ registerRoutes(app, {
 
 const PORT = Number(process.env.GATEWAY_PORT || process.env.PORT || 3123);
 app.listen(PORT, () => log({ event: "boot", msg: "gateway listening", url: `http://127.0.0.1:${PORT}` }));
+const REQUIRED_KEY = process.env.GATEWAY_API_KEY || "";
+app.use((req, res, next) => {
+  if (!REQUIRED_KEY) return next(); // auth off by default
+  const h = req.get("authorization") || "";
+  if (h === `Bearer ${REQUIRED_KEY}`) return next();
+  return res.status(401).json({ error: "unauthorized" });
+});
 
 // Optional: background auto-resolver for due forecasts
 // Enable with: FORECAST_AUTORESOLVE=true

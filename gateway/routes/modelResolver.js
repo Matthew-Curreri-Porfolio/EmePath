@@ -8,6 +8,7 @@ import fs from "fs";
 import path from "path";
 
 const DEFAULT_ROOTS = [
+  "/home/hmagent/.ollama/models",
   path.join(process.env.HOME || "", ".ollama/models"),
   "/root/.ollama/models",
   "/var/snap/ollama/common/models",

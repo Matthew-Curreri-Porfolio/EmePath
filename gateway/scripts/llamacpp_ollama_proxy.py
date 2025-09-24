@@ -1,167 +1,342 @@
 """
 Ollama-compatible proxy for llama.cpp (OpenAI-style) server.
-
-Exposes a minimal subset of the Ollama API and forwards to llama.cpp:
-- GET /api/tags           -> GET  {LLAMACPP_SERVER}/v1/models
-- POST /api/chat          -> POST {LLAMACPP_SERVER}/v1/chat/completions (stream or non-stream)
-- POST /api/generate      -> POST {LLAMACPP_SERVER}/v1/completions (non-stream)
+Now enumerates local GGUF models (e.g., ~/models/**) and returns Ollama-shaped metadata.
 
 Run:
   pip install fastapi uvicorn requests
-  LLAMACPP_SERVER=http://127.0.0.1:8080 python gateway/scripts/llamacpp_ollama_proxy.py
-
-Notes:
-- Streaming translation: OpenAI SSE -> Ollama NDJSON lines
-- This is a lightweight bridge for local use; extend as needed
+  LLAMACPP_SERVER=http://127.0.0.1:8080 OLLAMA_LOCAL_MODELS=~/models python llamacpp_ollama_proxy.py
 """
 
-import os
-import json
-import time
+import os, re, io, json, hashlib, time
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Iterable, List
 
 import requests
 from fastapi import FastAPI, Response, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 BASE = (os.environ.get("LLAMACPP_SERVER") or "http://127.0.0.1:8080").rstrip("/")
+TIMEOUT = float(os.environ.get("UPSTREAM_TIMEOUT", "300"))
+APP_VERSION = os.environ.get("OLLAMA_PROXY_VERSION", "0.0.1-proxy")
+LOCAL_MODELS_ROOT = os.path.expanduser(os.environ.get("OLLAMA_LOCAL_MODELS", "~/models")).rstrip("/")
+DIGEST_CACHE = os.path.expanduser(os.environ.get("OLLAMA_PROXY_DIGEST_CACHE", "~/.cache/ollama-proxy/digests.json"))
 
 app = FastAPI(title="llamacpp-ollama-proxy")
-
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
-
 def oops(status: int, msg: str):
     return JSONResponse({"ok": False, "error": msg}, status_code=status)
 
+def _first_choice_text(obj: Dict[str, Any]) -> str:
+    ch = (obj.get("choices") or [{}])[0]
+    return ch.get("text") or ch.get("message", {}).get("content") or ""
+
+def _norm_model_name(x: Dict[str, Any]) -> str:
+    return x.get("id") or x.get("name") or "default"
+
+def _map_opts_to_openai(opts: Dict[str, Any]) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    if "temperature" in opts: out["temperature"] = opts["temperature"]
+    if "top_p" in opts: out["top_p"] = opts["top_p"]
+    if "top_k" in opts: out["top_k"] = opts["top_k"]
+    if "repeat_penalty" in opts: out["frequency_penalty"] = opts["repeat_penalty"]
+    if "presence_penalty" in opts: out["presence_penalty"] = opts["presence_penalty"]
+    if "num_predict" in opts: out["max_tokens"] = opts["num_predict"]
+    if "stop" in opts: out["stop"] = opts["stop"]
+    return out
+
+# ---------- Local model discovery & digest cache ----------
+
+_GGUF_RE = re.compile(r"(?i)(?P<base>.+?)(?:-(?P<quant>Q[0-9]_(?:[0-9A-Z_]+)|Q[0-9](?:_[0-9A-Z]+)?|IQ[0-9]_[A-Z]+|Q[0-9]+_[A-Z]+))?\.gguf$")
+_PARAM_RE = re.compile(r"(?i)(?:^|[^A-Za-z0-9])(?P<params>[0-9]+[bB])(?:[^A-Za-z0-9]|$)")
+
+def _load_digest_cache() -> Dict[str, Dict[str, Any]]:
+    path = os.path.expanduser(DIGEST_CACHE)
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_digest_cache(cache: Dict[str, Dict[str, Any]]) -> None:
+    path = os.path.expanduser(DIGEST_CACHE)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(cache, f)
+    os.replace(tmp, path)
+
+def _sha256_file(path: str) -> str:
+    cache = _load_digest_cache()
+    st = os.stat(path)
+    key = os.path.abspath(path)
+    ent = cache.get(key)
+    if ent and ent.get("size") == st.st_size and ent.get("mtime") == int(st.st_mtime):
+        return ent["sha256"]
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(16 * 1024 * 1024), b""):
+            h.update(chunk)
+    digest = h.hexdigest()
+    cache[key] = {"sha256": digest, "size": st.st_size, "mtime": int(st.st_mtime)}
+    _save_digest_cache(cache)
+    return digest
+
+def _param_size_from_name(name: str) -> Optional[str]:
+    m = _PARAM_RE.search(name)
+    if m:
+        val = m.group("params").upper()
+        return val.replace("B", "B")
+    return None
+
+def _quant_from_filename(fname: str) -> Optional[str]:
+    m = _GGUF_RE.match(os.path.basename(fname))
+    if m and m.group("quant"):
+        return m.group("quant").upper()
+    return None
+
+def _ollama_model_entry_from_file(path: str) -> Dict[str, Any]:
+    st = os.stat(path)
+    name = os.path.splitext(os.path.basename(path))[0]
+    quant = _quant_from_filename(path) or ""
+    param = _param_size_from_name(name) or ""
+    details = {
+        "format": "gguf",
+        "family": None,
+        "families": [],
+        "parent_model": None,
+        "parameter_size": param,       # e.g., "4B", "30B"
+        "quantization": quant,         # e.g., "Q6_K", "Q5_K_M", "IQ4_NL"
+        "adapter_map": None,
+    }
+    return {
+        "name": name,
+        "modified_at": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+        "size": st.st_size,
+        "digest": _sha256_file(path),
+        "details": details,
+        "expires_at": None,
+    }
+
+def _scan_local_models() -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    root = LOCAL_MODELS_ROOT
+    if not os.path.isdir(root):
+        return out
+    for base, dirs, files in os.walk(root):
+        for fn in files:
+            if fn.lower().endswith(".gguf"):
+                full = os.path.join(base, fn)
+                try:
+                    out.append(_ollama_model_entry_from_file(full))
+                except Exception:
+                    continue
+    # stable sort by name
+    out.sort(key=lambda x: x["name"])
+    return out
+
+def _find_local_model(name: str) -> Optional[Dict[str, Any]]:
+    # exact match by computed "name" (filename-minus-ext)
+    for m in _scan_local_models():
+        if m["name"] == name:
+            return m
+    return None
+
+# ---------- API ----------
+
+@app.get("/api/version")
+def api_version():
+    return {"version": APP_VERSION}
 
 @app.get("/api/tags")
 def api_tags():
     try:
-        r = requests.get(f"{BASE}/v1/models", timeout=15)
-        r.raise_for_status()
-        data = r.json() if r.text else {}
-        models = []
-        for x in (data.get("data") or []):
-            name = x.get("id") or x.get("name") or "default"
-            models.append({"name": name})
-        return {"models": models}
+        local = _scan_local_models()
+        return {"models": local}
     except Exception as e:
-        return oops(502, f"upstream error: {e}")
+        return oops(500, f"scan error: {e}")
 
+@app.get("/api/ps")
+def api_ps():
+    return {"models": []}
 
-@app.post("/api/generate")
-def api_generate(payload: Dict[str, Any]):
-    prompt = str(payload.get("prompt", ""))
-    model = payload.get("model") or "default"
-    temperature = payload.get("options", {}).get("temperature", 0.2)
-    max_tokens = payload.get("options", {}).get("num_predict")
-    body = {"model": model, "prompt": prompt, "temperature": temperature, "stream": False}
-    if isinstance(max_tokens, int):
-        body["max_tokens"] = max_tokens
-    try:
-        r = requests.post(f"{BASE}/v1/completions", json=body, timeout=120)
-        r.raise_for_status()
-        d = r.json()
-        text = (d.get("choices") or [{}])[0].get("text") or ""
-        return {
-            "model": model,
-            "created_at": now_iso(),
-            "response": text,
-            "done": True,
-        }
-    except Exception as e:
-        return oops(502, f"upstream error: {e}")
+@app.post("/api/show")
+def api_show(payload: Dict[str, Any]):
+    model = payload.get("name") or payload.get("model") or ""
+    if not model:
+        return oops(400, "missing model name")
+    m = _find_local_model(model)
+    if not m:
+        return oops(404, f"model not found: {model}")
+    return {
+        "license": "",
+        "modelfile": "",
+        "parameters": "",
+        "template": "",
+        "system": "",
+        "messages": [],
+        "projector": None,
+        "notes": {"general": ""},
+        "model_info": {
+            "model": m["name"],
+            "digest": m["digest"],
+            "size": m["size"],
+            "modified_at": m["modified_at"],
+            "details": m["details"],
+        },
+    }
 
+def _o_ndjson(line: Dict[str, Any]) -> str:
+    return json.dumps(line, ensure_ascii=False) + "\n"
 
-def _sse_to_ollama_ndjson_lines(resp: requests.Response, model: str):
-    # Convert OpenAI SSE stream to Ollama-like NDJSON message stream
-    # Upstream provides lines like: "data: {json}\n" and ends with "data: [DONE]"
-    for raw in resp.iter_lines(decode_unicode=False):
-        if not raw:
-            continue
-        try:
-            line = raw.decode("utf-8", errors="ignore").strip()
-        except Exception:
-            continue
-        if not line.startswith("data:"):
-            continue
-        chunk = line[5:].strip()
+def _sse_to_generate_ndjson(resp: requests.Response, model: str) -> Iterable[str]:
+    acc = ""
+    for raw in resp.iter_lines(decode_unicode=True):
+        if not raw: continue
+        s = raw.strip()
+        if not s.startswith("data:"): continue
+        chunk = s[5:].strip()
         if chunk == "[DONE]":
-            yield json.dumps({"model": model, "created_at": now_iso(), "message": None, "done": True}) + "\n"
+            yield _o_ndjson({"model": model, "created_at": now_iso(), "response": acc, "done": True})
             break
         try:
             d = json.loads(chunk)
         except Exception:
             continue
-        # OpenAI-style delta chunk
-        content = ""
-        choices = d.get("choices") or []
-        if choices:
-            delta = choices[0].get("delta") or {}
-            content = delta.get("content") or ""
-        if content:
-            out = {
-                "model": model,
-                "created_at": now_iso(),
-                "message": {"role": "assistant", "content": content},
-                "done": False,
-            }
-            yield json.dumps(out) + "\n"
+        txt = _first_choice_text(d)
+        if txt:
+            acc += txt
+            yield _o_ndjson({"model": model, "created_at": now_iso(), "response": txt, "done": False})
 
+def _sse_to_chat_ndjson(resp: requests.Response, model: str) -> Iterable[str]:
+    buf = ""
+    for raw in resp.iter_lines(decode_unicode=True):
+        if not raw: continue
+        s = raw.strip()
+        if not s.startswith("data:"): continue
+        chunk = s[5:].strip()
+        if chunk == "[DONE]":
+            if buf:
+                yield _o_ndjson({
+                    "model": model,
+                    "created_at": now_iso(),
+                    "message": {"role": "assistant", "content": buf},
+                    "done": False,
+                })
+            yield _o_ndjson({"model": model, "created_at": now_iso(), "message": None, "done": True})
+            break
+        try:
+            d = json.loads(chunk)
+        except Exception:
+            continue
+        for choice in d.get("choices", []):
+            delta = (choice.get("delta") or {})
+            content = delta.get("content")
+            if content:
+                buf += content
+                yield _o_ndjson({
+                    "model": model,
+                    "created_at": now_iso(),
+                    "message": {"role": "assistant", "content": content},
+                    "done": False,
+                })
+
+@app.post("/api/generate")
+def api_generate(payload: Dict[str, Any]):
+    prompt = str(payload.get("prompt", ""))
+    model = payload.get("model") or "default"
+    opts = payload.get("options") or {}
+    stream = bool(payload.get("stream", False))
+    oai = {"model": model, "prompt": prompt, "stream": stream}
+    oai.update(_map_opts_to_openai(opts))
+    try:
+        if stream:
+            r = requests.post(f"{BASE}/v1/completions", json=oai, stream=True, timeout=TIMEOUT)
+            if r.status_code != 200:
+                return oops(502, f"upstream status {r.status_code}: {r.text[:200]}")
+            return StreamingResponse(_sse_to_generate_ndjson(r, model), media_type="application/x-ndjson")
+        else:
+            r = requests.post(f"{BASE}/v1/completions", json=oai, timeout=TIMEOUT)
+            r.raise_for_status()
+            d = r.json()
+            text = _first_choice_text(d)
+            return {"model": model, "created_at": now_iso(), "response": text, "done": True}
+    except Exception as e:
+        return oops(502, f"upstream error: {e}")
 
 @app.post("/api/chat")
 def api_chat(req: Request, payload: Dict[str, Any]):
     model = payload.get("model") or "default"
-    temperature = payload.get("options", {}).get("temperature", 0.2)
-    max_tokens = payload.get("options", {}).get("num_predict")
+    opts = payload.get("options") or {}
     stream = bool(payload.get("stream", True))
     messages = payload.get("messages") or []
-    msgs = []
-    for m in messages:
-        role = m.get("role") or "user"
-        content = str(m.get("content") or "")
-        msgs.append({"role": role, "content": content})
-
-    body = {"model": model, "messages": msgs, "temperature": temperature}
-    if isinstance(max_tokens, int):
-        body["max_tokens"] = max_tokens
-
-    if stream:
-        # request SSE and translate to NDJSON
-        body["stream"] = True
-        try:
-            r = requests.post(f"{BASE}/v1/chat/completions", json=body, stream=True, timeout=120)
+    msgs = [{"role": (m.get("role") or "user"), "content": str(m.get("content") or "")} for m in messages]
+    body = {"model": model, "messages": msgs, "stream": stream}
+    body.update(_map_opts_to_openai(opts))
+    try:
+        if stream:
+            r = requests.post(f"{BASE}/v1/chat/completions", json=body, stream=True, timeout=TIMEOUT)
             if r.status_code != 200:
                 return oops(502, f"upstream status {r.status_code}: {r.text[:200]}")
-            return StreamingResponse(
-                _sse_to_ollama_ndjson_lines(r, model),
-                media_type="application/x-ndjson",
-            )
-        except Exception as e:
-            return oops(502, f"upstream error: {e}")
-    else:
-        body["stream"] = False
-        try:
-            r = requests.post(f"{BASE}/v1/chat/completions", json=body, timeout=120)
+            return StreamingResponse(_sse_to_chat_ndjson(r, model), media_type="application/x-ndjson")
+        else:
+            r = requests.post(f"{BASE}/v1/chat/completions", json=body, timeout=TIMEOUT)
             r.raise_for_status()
             d = r.json()
-            content = (d.get("choices") or [{}])[0].get("message", {}).get("content") or ""
-            return {
-                "model": model,
-                "created_at": now_iso(),
-                "message": {"role": "assistant", "content": content},
-                "done": True,
-            }
-        except Exception as e:
-            return oops(502, f"upstream error: {e}")
+            content = _first_choice_text(d)
+            return {"model": model, "created_at": now_iso(), "message": {"role": "assistant", "content": content}, "done": True}
+    except Exception as e:
+        return oops(502, f"upstream error: {e}")
 
+@app.post("/api/pull")
+def api_pull(payload: Dict[str, Any]):
+    name = payload.get("name") or payload.get("model") or "default"
+    def gen():
+        yield json.dumps({"status": f"pulling {name}", "digest": "", "total": 1, "completed": 1}) + "\n"
+        yield json.dumps({"status": "success"}) + "\n"
+    return StreamingResponse(gen(), media_type="application/x-ndjson")
+
+@app.post("/api/create")
+def api_create(payload: Dict[str, Any]):
+    def gen():
+        yield json.dumps({"status": "creating model"}) + "\n"
+        yield json.dumps({"status": "success"}) + "\n"
+    return StreamingResponse(gen(), media_type="application/x-ndjson")
+
+@app.post("/api/copy")
+def api_copy(payload: Dict[str, Any]):
+    return {"status": "success"}
+
+@app.delete("/api/delete")
+def api_delete(payload: Dict[str, Any]):
+    name = payload.get("name") or payload.get("model")
+    if not name:
+        return oops(400, "missing model name")
+    m = _find_local_model(name)
+    if not m:
+        return oops(404, "model not found")
+    # best-effort file removal by recomputing path from name
+    # search again and remove the first match
+    removed = False
+    for base, _, files in os.walk(LOCAL_MODELS_ROOT):
+        for fn in files:
+            if fn.lower().endswith(".gguf") and os.path.splitext(fn)[0] == name:
+                try:
+                    os.remove(os.path.join(base, fn))
+                    removed = True
+                    break
+                except Exception:
+                    pass
+        if removed: break
+    return {"status": "success" if removed else "not_found"}
+
+@app.post("/api/refresh")
+def api_refresh():
+    return {"status": "success"}
 
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT") or 11434)
     uvicorn.run(app, host="0.0.0.0", port=port)
-

@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "node",
+      "args": [
+        "build/index.js"
+      ],
+      "env": {
+        "ALLOWED_DIRECTORIES": "/oss-codex"
+      }
+    },
+    "new_server": {
+      "command": "node",
+      "args": [
+        "build/index.js"
+      ],
+      "env": {
+        "ALLOWED_DIRECTORIES": "/oss-codex"
+      }
+    }
+  }
