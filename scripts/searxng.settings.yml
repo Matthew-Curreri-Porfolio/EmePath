@@ -1,7 +1,7 @@
 server:
   secret_key: "devsecret"
   limiter: false
-  public_instance: true
+  public_instance: false
   image_proxy: false
 
 ui:
@@ -15,11 +15,14 @@ search:
 
 engines:
   - name: duckduckgo
+    engine: duckduckgo
     shortcut: ddg
+    categories: general
     disabled: false
     timeout: 3.0
   - name: wikipedia
+    engine: wikipedia
     shortcut: wp
+    categories: general
     disabled: false
     timeout: 3.0
-

@@ -84,6 +84,48 @@ The gateway resolves models using Ollama manifests and prefers instruction/chat 
 - `LLAMA_MODEL_REF='namespace/name:tag'`
 - `LLAMA_MODEL_PATH='/path/to/sha256-...'`
 
+## SearXNG: Optional API Engines
+
+By default only DuckDuckGo and Wikipedia are enabled (no API keys required). To enable API‑backed engines (e.g., Google via SerpAPI, Bing via SerpAPI, or Google Custom), edit `scripts/searxng/settings.yml` and add entries like:
+
+```yaml
+engines:
+  # Google via SerpAPI
+  - name: google (SerpAPI)
+    engine: serpapi
+    shortcut: g
+    categories: general
+    api_key: "${SERPAPI_API_KEY}"
+    disabled: true   # set to false when key is configured
+    timeout: 4.0
+
+  # Bing via SerpAPI
+  - name: bing (SerpAPI)
+    engine: serpapi
+    shortcut: b
+    categories: general
+    api_key: "${SERPAPI_API_KEY}"
+    disabled: true
+    timeout: 4.0
+
+  # Google Custom Search
+  - name: google_custom
+    engine: google_custom
+    shortcut: gc
+    categories: general
+    api_key: "${GOOGLE_API_KEY}"
+    cse_id: "${GOOGLE_CSE_ID}"
+    disabled: true
+    timeout: 4.0
+```
+
+Restart SearXNG after changes:
+
+```
+npm run searx:compose:down
+npm run searx:compose:up
+```
+
 ## Dev Notes
 
 The stack orchestrator and helpers live in `/scripts`. The repo’s CI (`.github/workflows/ci.yml`) runs a preflight check and unit/integration tests.
