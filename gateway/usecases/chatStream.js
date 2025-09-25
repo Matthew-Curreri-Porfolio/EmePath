@@ -76,6 +76,16 @@ export async function chatStreamUseCase(req, res, deps) {
       res.write(chunk);
       res.flush?.();
     });
+    stream.on("error", err => {
+      const latencyErr = Math.round(performance.now() - t0);
+      const reason = err?.message || 'stream error';
+      log({ id, event: "error", where: "stream", type: "chat_stream", reason, latencyMs: latencyErr });
+      if (!res.headersSent) {
+        res.status(502).json({ error: "stream error" });
+      } else {
+        try { res.end(); } catch {}
+      }
+    });
     stream.on("end", () => {
       res.end();
     });
