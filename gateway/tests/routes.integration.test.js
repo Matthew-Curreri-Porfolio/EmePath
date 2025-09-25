@@ -21,6 +21,7 @@ if (!llamaStub || !llamaStub.port) {
 }
 
 const stubBase = `http://127.0.0.1:${llamaStub.port}`;
+let originalTimeout;
 
 async function setStubFixture(patch) {
   await fetch(`${stubBase}/__fixture`, {
@@ -40,6 +41,8 @@ describe('Gateway routes integration', () => {
   beforeAll(async () => {
     process.env.NODE_ENV = 'test';
     process.env.MOCK = '0';
+    originalTimeout = process.env.GATEWAY_TIMEOUT_MS;
+    process.env.GATEWAY_TIMEOUT_MS = '2000';
 
     setIndex({ root: null, files: [] });
 
@@ -87,6 +90,8 @@ describe('Gateway routes integration', () => {
   afterAll(async () => {
     if (server) await new Promise((resolve) => server.close(resolve));
     if (tmpDir) await fs.rm(tmpDir, { recursive: true, force: true });
+    if (typeof originalTimeout === 'undefined') delete process.env.GATEWAY_TIMEOUT_MS;
+    else process.env.GATEWAY_TIMEOUT_MS = originalTimeout;
     setIndex({ root: null, files: [] });
   });
 
