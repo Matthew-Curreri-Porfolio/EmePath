@@ -274,6 +274,59 @@ async function startOllamaProxy(llamaBase) {
   return { child, base };
 }
 
+// TTY rolling renderer: keeps last N lines visible, colorized; holds latest error
+function makeRollingRenderer(name = 'status', maxLines = 4) {
+  const isTTY = process.stdout && process.stdout.isTTY;
+  const RESET = '\x1b[0m';
+  const DIM = '\x1b[90m';
+  const YELLOW = '\x1b[33m';
+  const GREEN = '\x1b[32m';
+  const RED = '\x1b[31m';
+  const CYAN = '\x1b[36m';
+  const prefix = `${CYAN}[${name}]${RESET}`;
+  /** @type {{text:string,isError?:boolean}[]} */
+  const lines = [];
+  let rendered = 0;
+  /** @type {null|{text:string,isError?:boolean}} */
+  let heldError = null;
+
+  const push = (text, { level = 'info', isError = false } = {}) => {
+    let colored = text;
+    if (level === 'info') colored = `${DIM}${text}${RESET}`;
+    else if (level === 'warn') colored = `${YELLOW}${text}${RESET}`;
+    else if (level === 'ok') colored = `${GREEN}${text}${RESET}`;
+    else if (level === 'error') colored = `${RED}${text}${RESET}`;
+    const entry = { text: `${prefix} ${colored}`, isError };
+    if (isError) heldError = entry;
+    lines.push(entry);
+    // Trim to maxLines, but keep the held error if present
+    while (lines.length > maxLines) {
+      if (heldError && lines[0] === heldError) {
+        // Keep error by removing next non-error line
+        const idx = lines.findIndex((e) => e !== heldError);
+        if (idx >= 0) lines.splice(idx, 1); else break;
+      } else {
+        lines.shift();
+      }
+    }
+    render();
+  };
+
+  const render = () => {
+    if (!isTTY) return;
+    for (let i = 0; i < rendered; i++) {
+      process.stdout.write('\x1b[2K\r');
+      if (i < rendered - 1) process.stdout.write('\x1b[1A');
+    }
+    for (const l of lines) process.stdout.write(l.text + '\n');
+    rendered = lines.length;
+  };
+
+  const finalize = () => { /* keep last block visible */ };
+
+  return { push, finalize, colors: { RESET, DIM, YELLOW, GREEN, RED, CYAN }, prefix };
+}
+
 async function ensureSearxng() {
   const base = SEARXNG_BASE.replace(/\/$/, '');
   if (await httpOk(`${base}/search?q=test&format=json`)) { log({ event: 'searxng_ok', base }); return { child: null, base }; }
@@ -335,6 +388,34 @@ async function streamWarmupWithFeedback(gwBase, { timeoutMs = 10000 } = {}) {
   const url = `${gwBase.replace(/\/$/, '')}/warmup/stream`;
   const controller = new AbortController();
   const to = setTimeout(() => controller.abort(), timeoutMs);
+  // Pretty console rendering (TTY-only): keep last 4 lines, colorized
+  const isTTY = process.stdout && process.stdout.isTTY;
+  const RESET = '\x1b[0m';
+  const DIM = '\x1b[90m';
+  const YELLOW = '\x1b[33m';
+  const GREEN = '\x1b[32m';
+  const RED = '\x1b[31m';
+  const CYAN = '\x1b[36m';
+  const last = [];
+  let rendered = 0;
+  let lockedError = false;
+  const pushLine = (s) => {
+    last.push(s);
+    while (last.length > 4) last.shift();
+  };
+  const render = () => {
+    if (!isTTY) return;
+    // move cursor up and clear previous block
+    for (let i = 0; i < rendered; i++) {
+      process.stdout.write('\x1b[2K\r'); // clear line
+      if (i < rendered - 1) process.stdout.write('\x1b[1A'); // move up
+    }
+    // print current block
+    for (let i = 0; i < last.length; i++) {
+      process.stdout.write(last[i] + '\n');
+    }
+    rendered = last.length;
+  };
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -358,10 +439,18 @@ async function streamWarmupWithFeedback(gwBase, { timeoutMs = 10000 } = {}) {
           const msg = JSON.parse(raw);
           if (msg && msg.event === 'status') {
             log({ event: 'warmup_status', state: msg.state, via: msg.via, ms: msg.ms, error: msg.error });
-            if (msg.state === 'ok' || msg.state === 'error') {
-              try { await reader.cancel(); } catch {}
-              return;
+            if (isTTY && !lockedError) {
+              const prefix = `${CYAN}[warmup]${RESET}`;
+              if (msg.state === 'starting') pushLine(`${prefix} ${YELLOW}starting...${RESET}`);
+              else if (msg.state === 'waiting') pushLine(`${prefix} ${DIM}waiting ${String(msg.ms || 0)}ms...${RESET}`);
+              else if (msg.state === 'ok') pushLine(`${prefix} ${GREEN}ready (${msg.via || 'server'})${RESET}`);
+              else if (msg.state === 'error') {
+                lockedError = true;
+                pushLine(`${prefix} ${RED}error: ${String(msg.error || 'unknown')}${RESET}`);
+              } else pushLine(`${prefix} ${DIM}${msg.state}${RESET}`);
+              render();
             }
+            if (msg.state === 'ok' || msg.state === 'error') { try { await reader.cancel(); } catch {} return; }
           }
         } catch {
           // ignore parse errors
@@ -380,7 +469,11 @@ async function main() {
     const searxOnly = argv.has('--searxng-only');
     const checkOnly = argv.has('--check') || process.env.STACK_MODE === 'check';
 
+    const startup = makeRollingRenderer('startup', 4);
+    startup.push('checking searxng...', { level: 'info' });
     const searxRes = await ensureSearxng();
+    if (searxRes.failed) startup.push('searxng unavailable', { level: 'warn' });
+    else startup.push('searxng OK', { level: 'ok' });
     if (searxRes.failed) log({ event: 'searxng_unavailable', base: SEARXNG_BASE });
     if (searxOnly) return;
     // CI-friendly fast path: when running in check mode on CI, skip heavy llama checks
@@ -390,9 +483,13 @@ async function main() {
     }
     const modelPath = await pickModel();
     log({ event: 'model_selected', modelPath, size: sizeOf(modelPath) });
+    startup.push('model selected', { level: 'ok' });
     const { child: llamaProc, base: llamaBase } = await startLlamaServer(modelPath);
+    startup.push('llama server ready', { level: 'ok' });
     const { child: ollamaProc, base: ollamaBase } = await startOllamaProxy(llamaBase);
+    startup.push('ollama proxy ready', { level: 'ok' });
     const { child: gwProc, base: gwBase } = await startGateway(llamaBase);
+    startup.push('gateway listening', { level: 'ok' });
 
     if (checkOnly) {
       const ok = await httpOk(`${gwBase}/health`);
@@ -405,12 +502,19 @@ async function main() {
     }
 
     // Quick smoke checks
+    startup.push('ping llama chat...', { level: 'info' });
     const chatR = await fetch(`${llamaBase}/v1/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: 'default', messages: [{ role: 'user', content: 'Say hi' }], max_tokens: 8 }) });
     log({ event: 'llama_chat_status', status: chatR.status });
+    if (chatR.ok) startup.push('llama chat 200', { level: 'ok' }); else startup.push(`llama chat ${chatR.status}`, { level: 'warn' });
+    startup.push('proxy tags...', { level: 'info' });
     const tagsR = await fetch(`${ollamaBase}/api/tags`).then(r => r.json()).catch(() => ({}));
     log({ event: 'ollama_tags_count', count: Array.isArray(tagsR?.models) ? tagsR.models.length : 0 });
+    const tagCount = Array.isArray(tagsR?.models) ? tagsR.models.length : 0;
+    startup.push(`proxy tags ${tagCount}`, { level: 'ok' });
+    startup.push('gateway health...', { level: 'info' });
     const healthR = await fetch(`${gwBase}/health`).then(r => r.json()).catch(() => ({}));
     log({ event: 'gateway_health', ok: healthR?.ok === true });
+    if (healthR?.ok) startup.push('gateway OK', { level: 'ok' }); else startup.push('gateway not ready', { level: 'error', isError: true });
 
     log({ event: 'stack_ready', llamaBase, ollamaBase, gwBase, searxng: SEARXNG_BASE });
     // Kick a warmup with streaming feedback in the background (best-effort)

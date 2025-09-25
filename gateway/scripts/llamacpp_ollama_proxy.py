@@ -21,6 +21,47 @@ APP_VERSION = os.environ.get("OLLAMA_PROXY_VERSION", "0.0.1-proxy")
 LOCAL_MODELS_ROOT = os.path.expanduser(os.environ.get("OLLAMA_LOCAL_MODELS", "~/models")).rstrip("/")
 DIGEST_CACHE = os.path.expanduser(os.environ.get("OLLAMA_PROXY_DIGEST_CACHE", "~/.cache/ollama-proxy/digests.json"))
 
+
+# ---- In-memory keep-alive cache for /api/ps and load/unload semantics ----
+_LOADED: dict[str, dict] = {}  # model -> {"name": str, "model": str, "size": int, "digest": str, "details": {...}, "expires_at": str, "size_vram": int}
+_DEF_KEEP = 300.0  # seconds
+
+def _touch_loaded(model: str, meta: dict, keep_alive: float | str | int | None):
+    if keep_alive == 0 or keep_alive == "0":
+        _LOADED.pop(model, None)
+        return
+    seconds = _DEF_KEEP
+    if isinstance(keep_alive, (int,float)):
+        seconds = float(keep_alive)
+    elif isinstance(keep_alive, str):
+        m = re.match(r"^\s*(\d+)([smhd]?)\s*$", keep_alive)
+        if m:
+            val, unit = int(m.group(1)), m.group(2) or "s"
+            mul = {"s":1, "m":60, "h":3600, "d":86400}[unit]
+            seconds = val * mul
+    expires = time.time() + seconds
+    meta = dict(meta or {})
+    meta.setdefault("name", model)
+    meta.setdefault("model", model)
+    meta.setdefault("size", 0)
+    meta.setdefault("digest", "")
+    meta.setdefault("details", {"format":"gguf"})
+    meta.setdefault("size_vram", meta.get("size", 0))
+    meta["expires_at"] = datetime.fromtimestamp(expires, tz=timezone.utc).isoformat()
+    _LOADED[model] = meta
+
+def _gc_loaded():
+    now = time.time()
+    dead = []
+    for k,v in list(_LOADED.items()):
+        try:
+            exp = datetime.fromisoformat(v.get("expires_at")).timestamp()
+        except Exception:
+            exp = now - 1
+        if exp <= now:
+            dead.append(k)
+    for k in dead:
+        _LOADED.pop(k, None)
 app = FastAPI(title="llamacpp-ollama-proxy")
 
 def now_iso() -> str:
@@ -150,6 +191,51 @@ def _find_local_model(name: str) -> Optional[Dict[str, Any]]:
 def api_version():
     return {"version": APP_VERSION}
 
+
+_BLOB_DIR = os.path.expanduser(os.environ.get("OLLAMA_PROXY_BLOB_DIR", "/home/sandbox/.cache/ollama-proxy/blobs"))
+os.makedirs(_BLOB_DIR, exist_ok=True)
+
+def _blob_path(digest: str) -> str:
+    digest = digest.strip()
+    if not digest.startswith("sha256:"):
+        raise ValueError("digest must start with sha256:")
+    return os.path.join(_BLOB_DIR, digest.replace("sha256:", "sha256-"))
+
+@app.head("/api/blobs/{{digest}}")
+def api_blob_head(digest: str, response: Response):
+    try:
+        p = _blob_path(digest)
+    except Exception as e:
+        return oops(400, str(e))
+    if os.path.isfile(p):
+        response.status_code = 200
+        return Response()
+    response.status_code = 404
+    return Response()
+
+@app.post("/api/blobs/{{digest}}")
+def api_blob_post(digest: str, request: Request):
+    try:
+        p = _blob_path(digest)
+    except Exception as e:
+        return oops(400, str(e))
+    h = hashlib.sha256()
+    tmp = p + ".part"
+    with open(tmp, "wb") as f:
+        for chunk in request.stream():
+            if isinstance(chunk, bytes):
+                f.write(chunk); h.update(chunk)
+            else:
+                data = chunk if isinstance(chunk, (bytes, bytearray)) else bytes(chunk)
+                f.write(data); h.update(data)
+    got = "sha256:" + h.hexdigest()
+    if got != digest:
+        try: os.remove(tmp)
+        except Exception: pass
+        return oops(400, f"digest mismatch expected={{digest}} got={{got}}")
+    os.replace(tmp, p)
+    return JSONResponse(status_code=201, content={"status": "created"})
+
 @app.get("/api/tags")
 def api_tags():
     try:
@@ -160,7 +246,8 @@ def api_tags():
 
 @app.get("/api/ps")
 def api_ps():
-    return {"models": []}
+    _gc_loaded()
+    return {"models": list(_LOADED.values())}
 
 @app.post("/api/show")
 def api_show(payload: Dict[str, Any]):
@@ -245,6 +332,8 @@ def _sse_to_chat_ndjson(resp: requests.Response, model: str) -> Iterable[str]:
 
 @app.post("/api/generate")
 def api_generate(payload: Dict[str, Any]):
+    # TODO: support "format":"json" and JSON-schema enforcement with validate+retry
+    # TODO: support "suffix", "system", "template", "raw", "images[]" passthrough based on model capabilities
     prompt = str(payload.get("prompt", ""))
     model = payload.get("model") or "default"
     opts = payload.get("options") or {}
@@ -268,6 +357,8 @@ def api_generate(payload: Dict[str, Any]):
 
 @app.post("/api/chat")
 def api_chat(req: Request, payload: Dict[str, Any]):
+    # TODO: tools/function calling: surface tool_calls; forward tool schema to upstream if supported
+    # TODO: per-message images[]; JSON-schema outputs via "format"
     model = payload.get("model") or "default"
     opts = payload.get("options") or {}
     stream = bool(payload.get("stream", True))
@@ -308,6 +399,42 @@ def api_create(payload: Dict[str, Any]):
 @app.post("/api/copy")
 def api_copy(payload: Dict[str, Any]):
     return {"status": "success"}
+
+
+@app.post("/api/embed")
+def api_embed(payload: Dict[str, Any]):
+    model = payload.get("model") or payload.get("name")
+    if not model:
+        return oops(400, "missing model name")
+    inputs = payload.get("input")
+    if inputs is None:
+        return oops(400, "missing 'input'")
+    keep_alive = payload.get("keep_alive", None)
+    oai = {"model": model, "input": inputs}
+    try:
+        r = requests.post(f"{BASE}/v1/embeddings", json=oai, timeout=TIMEOUT, stream=False)
+        r.raise_for_status()
+        obj = r.json()
+        vecs = [d["embedding"] for d in (obj.get("data") or [])] if isinstance(inputs, list) else [obj["data"][0]["embedding"]]
+        _touch_loaded(model, {"details":{"format":"gguf"}}, keep_alive)
+        return {"model": model, "embeddings": vecs, "total_duration": 0, "load_duration": 0, "prompt_eval_count": 0}
+    except Exception as e:
+        return oops(502, f"upstream embeddings error: {e}")
+
+@app.post("/api/embeddings")
+def api_embeddings(payload: Dict[str, Any]):
+    model = payload.get("model")
+    prompt = payload.get("prompt")
+    if not model or prompt is None:
+        return oops(400, "missing 'model' or 'prompt'")
+    try:
+        r = requests.post(f"{BASE}/v1/embeddings", json={"model": model, "input": prompt}, timeout=TIMEOUT)
+        r.raise_for_status()
+        obj = r.json()
+        emb = obj["data"][0]["embedding"]
+        return {"embedding": emb}
+    except Exception as e:
+        return oops(502, f"upstream embeddings error: {e}")
 
 @app.delete("/api/delete")
 def api_delete(payload: Dict[str, Any]):
