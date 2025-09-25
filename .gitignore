@@ -65,3 +65,4 @@ gateway/tools/curated/cache/*.json
 # !/scripts/searxng.settings.yml
 # !/scripts/resolve-models.js
 /.continue
+/documents/*.txt
