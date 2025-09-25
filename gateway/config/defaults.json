@@ -1,7 +1,7 @@
 {
   "ports": {
     "llamacpp": 8088,
-    "ollamaProxy": 11434,
+    "ollamaProxy": 11435,
     "gateway": 3123
   },
   "searxng": {

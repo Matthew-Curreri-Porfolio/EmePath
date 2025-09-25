@@ -21,6 +21,8 @@ const GATEWAY_PORT = CFG.ports.gateway;
 const SEARXNG_BASE = CFG.searxng.base;
 const SEARXNG_PORT = Number(process.env.SEARXNG_PORT || 8888);
 const SEARXNG_HOST = process.env.SEARXNG_HOST || '127.0.0.1';
+const PID_FILE = path.join(ROOT, '.stack.pids.json');
+const LOG_FILE = path.join(ROOT, 'stack.log');
 
 function log(obj) { console.log(JSON.stringify({ ts: new Date().toISOString(), ...obj })); }
 
@@ -261,18 +263,37 @@ async function startOllamaProxy(llamaBase) {
   const py = resolvePython();
   const script = path.join(ROOT, 'gateway/scripts/llamacpp_ollama_proxy.py');
   if (!isFile(script)) throw new Error('llamacpp_ollama_proxy.py missing');
-  const localModels = [path.join(process.env.HOME || '', '.ollama/models'), path.join(ROOT, 'models')].find(isDir) || path.join(process.env.HOME || '', '.ollama/models');
-  const env = { ...process.env, LLAMACPP_SERVER: llamaBase, OLLAMA_LOCAL_MODELS: localModels, PORT: String(OLLAMA_PROXY_PORT) };
+
+  const localModels =
+    [path.join(process.env.HOME || '', '.ollama/models'), path.join(ROOT, 'models')].find(isDir) ||
+    path.join(process.env.HOME || '', '.ollama/models');
+
   const base = `http://127.0.0.1:${OLLAMA_PROXY_PORT}`;
   if (await httpOk(`${base}/api/version`)) {
     log({ event: 'reuse_ollama_proxy', base });
     return { child: null, base };
   }
+
   log({ event: 'start_ollama_proxy', py, port: OLLAMA_PROXY_PORT, llamaBase, localModels });
-  const child = startProcess(py, [script], { env });
-  for (let i = 0; i < 20; i++) { if (await httpOk(`${base}/api/version`)) break; await sleep(500); }
+
+  // use CLI flags instead of only env vars
+  const args = [
+    script,
+    '--port', String(OLLAMA_PROXY_PORT),
+    '--llama-base', llamaBase,
+    '--local-models', localModels,
+    '--blob-dir', path.join(process.env.HOME || '', '.ollama/blobs'),
+  ];
+
+  const child = startProcess(py, args, { env: { ...process.env } });
+
+  for (let i = 0; i < 20; i++) {
+    if (await httpOk(`${base}/api/version`)) break;
+    await sleep(500);
+  }
   return { child, base };
 }
+
 
 // TTY rolling renderer: keeps last N lines visible, colorized; holds latest error
 function makeRollingRenderer(name = 'status', maxLines = 4) {
@@ -462,10 +483,98 @@ async function streamWarmupWithFeedback(gwBase, { timeoutMs = 10000 } = {}) {
   } finally { clearTimeout(to); }
 }
 
+async function stopStack() {
+  if (!exists(PID_FILE)) {
+    console.log('Stack not running (no PID file found).');
+    return;
+  }
+  console.log('Stopping stack...');
+  const pids = JSON.parse(fs.readFileSync(PID_FILE, 'utf8'));
+  const managerPid = pids.manager;
+
+  if (managerPid) {
+    try {
+      process.kill(-managerPid, 'SIGTERM');
+      console.log(`  - Sent SIGTERM to manager process group (pgid: ${managerPid}).`);
+    } catch (e) {
+      console.log(`  - Failed to kill process group ${managerPid}: ${e.message}.`);
+      console.log('  - Falling back to killing processes individually.');
+      for (const name in pids) {
+        const pid = pids[name];
+        if (pid) {
+          try {
+            process.kill(pid, 'SIGTERM');
+            console.log(`    - ${name} (pid: ${pid}) stopped.`);
+          } catch (e) {
+            console.log(`    - ${name} (pid: ${pid}) already stopped or failed to stop: ${e.message}`);
+          }
+        }
+      }
+    }
+  } else {
+    console.log('  - No manager PID found, killing processes individually.');
+    for (const name in pids) {
+      const pid = pids[name];
+      if (pid) {
+        try {
+          process.kill(pid, 'SIGTERM');
+          console.log(`    - ${name} (pid: ${pid}) stopped.`);
+        } catch (e) {
+          console.log(`    - ${name} (pid: ${pid}) already stopped or failed to stop: ${e.message}`);
+        }
+      }
+    }
+  }
+
+  // Wait for PID file to be removed by the manager's shutdown handler
+  for (let i = 0; i < 5; i++) {
+    if (!exists(PID_FILE)) {
+      console.log('Stack stopped.');
+      return;
+    }
+    await sleep(500);
+  }
+
+  console.log('Manager did not remove PID file, removing it now.');
+  try {
+    fs.unlinkSync(PID_FILE);
+  } catch (e) {
+    console.log(`Failed to remove PID file: ${e.message}`);
+  }
+  console.log('Stack stopped.');
+}
+
 async function main() {
+  const argv = new Set(process.argv.slice(2));
+
+  if (argv.has('--stop') || argv.has('--shutdown')) {
+    await stopStack();
+    return;
+  }
+
+  if (argv.has('--start')) {
+    if (exists(PID_FILE)) {
+      console.error('Stack is already running (PID file exists). Run "npm run stack:stop" first.');
+      process.exit(1);
+    }
+
+    const args = process.argv.slice(1).filter(a => a !== '--start');
+    const log = fs.openSync(LOG_FILE, 'a');
+    const child = spawn(process.argv[0], args, {
+      detached: true,
+      stdio: ['ignore', log, log],
+    });
+    child.unref();
+
+    console.log(`Stack starting in background. PID: ${child.pid}. Log file: ${LOG_FILE}`);
+    process.exit(0);
+  }
+
+  const pids = { manager: process.pid };
+  fs.writeFileSync(PID_FILE, JSON.stringify(pids, null, 2));
+
   try {
     // Optional preflight-only mode: --check
-    const argv = new Set(process.argv.slice(2));
     const searxOnly = argv.has('--searxng-only');
     const checkOnly = argv.has('--check') || process.env.STACK_MODE === 'check';
 
@@ -485,10 +594,19 @@ async function main() {
     log({ event: 'model_selected', modelPath, size: sizeOf(modelPath) });
     startup.push('model selected', { level: 'ok' });
     const { child: llamaProc, base: llamaBase } = await startLlamaServer(modelPath);
+    pids.llama = llamaProc?.pid;
+    fs.writeFileSync(PID_FILE, JSON.stringify(pids, null, 2));
+
     startup.push('llama server ready', { level: 'ok' });
     const { child: ollamaProc, base: ollamaBase } = await startOllamaProxy(llamaBase);
+    pids.ollama = ollamaProc?.pid;
+    fs.writeFileSync(PID_FILE, JSON.stringify(pids, null, 2));
+
     startup.push('ollama proxy ready', { level: 'ok' });
     const { child: gwProc, base: gwBase } = await startGateway(llamaBase);
+    pids.gateway = gwProc?.pid;
+    fs.writeFileSync(PID_FILE, JSON.stringify(pids, null, 2));
+
     startup.push('gateway listening', { level: 'ok' });
 
     if (checkOnly) {
@@ -540,11 +658,16 @@ async function main() {
       if (!CFG.runtime.keepLlamaOnExit) { try { llamaProc?.kill('SIGTERM'); } catch {} }
       try { ollamaProc.kill('SIGTERM'); } catch {}
       try { gwProc.kill('SIGTERM'); } catch {}
+      try { fs.unlinkSync(PID_FILE); } catch {}
     };
     process.once('SIGINT', () => { shutdown(); process.exit(130); });
     process.once('SIGTERM', () => { shutdown(); process.exit(143); });
+
+    // Keep the manager process alive
+    await new Promise(resolve => {});
   } catch (e) {
     log({ event: 'fatal', error: String(e && e.message || e) });
+    try { fs.unlinkSync(PID_FILE); } catch {} // cleanup pid file on startup error
     process.exit(1);
   }
 }
