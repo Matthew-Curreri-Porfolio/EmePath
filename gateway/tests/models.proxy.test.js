@@ -51,11 +51,19 @@ describe('Models proxy parity', () => {
     if (server) await new Promise((resolve) => server.close(resolve));
   });
 
-  it('returns exact upstream /v1/models payload', async () => {
-    const upstream = await fetch(`${llamaBase}/v1/models`).then(r => r.json());
+  it('returns OpenAI-style list with manifest-derived ids', async () => {
     const proxied = await agent.get('/models');
     expect(proxied.status).toBe(200);
-    expect(proxied.body).toEqual(upstream);
+    expect(proxied.body?.object).toBe('list');
+    expect(Array.isArray(proxied.body?.data)).toBe(true);
+    expect(proxied.body.data.length).toBeGreaterThan(0);
+    for (const entry of proxied.body.data) {
+      expect(entry?.object).toBe('model');
+      expect(typeof entry?.id).toBe('string');
+      expect(entry.id.length).toBeGreaterThan(0);
+      expect(entry.id.startsWith('/home')).toBe(false);
+      expect(entry.id.includes(':')).toBe(true);
+      expect(typeof entry.owned_by).toBe('string');
+    }
   });
 });
-

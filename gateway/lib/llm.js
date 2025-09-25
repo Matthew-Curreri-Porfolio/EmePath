@@ -207,49 +207,17 @@ function digestFromManifestText(text) {
   return '';
 }
 
-function buildEntry({ name, digest, blobPath, fallbackStat }) {
-  let size = 0; let mtime = new Date();
-  if (blobPath && isFile(blobPath)) {
-    const st = fs.statSync(blobPath);
-    size = st.size; mtime = st.mtime;
-  } else if (fallbackStat) {
-    size = fallbackStat.size; mtime = fallbackStat.mtime;
-  }
-  const quant = quantFromPath(blobPath) || quantFromPath(name) || null;
-  const param = parameterSizeFrom(name) || parameterSizeFrom(blobPath) || null;
-  const details = {
-    format: 'gguf',
-    family: familyFromName(name),
-    families: null,
-    parameter_size: param,
-    quantization_level: quant,
-  };
-  return {
-    name,
-    modified_at: mtime.toISOString(),
-    size,
-    digest: digest || '',
-    details,
-  };
+function normalizeDigest(digest) {
+  if (!digest) return '';
+  return String(digest).replace(/^sha256[-:]/i, '').toLowerCase();
 }
 
-function listFromManifestsDetailed() {
-  const models = new Map(); // name -> entry
-  const files = collectManifestFiles();
-  for (const p of files) {
-    let text = '';
-    try { text = fs.readFileSync(p, 'utf8'); } catch { continue; }
-    const fallbackStat = (() => { try { return fs.statSync(p); } catch { return null; } })();
-    const name = idFromManifestPath(p);
-    const d = digestFromManifestText(text) || extractSha256(text);
-    const blob = d ? blobPathForDigest(d) : '';
-    const entry = buildEntry({ name, digest: d, blobPath: blob, fallbackStat });
-    // Prefer entries with real blob size over ones without
-    const prev = models.get(name);
-    if (!prev || (entry.size && !prev.size)) models.set(name, entry);
-  }
-  return Array.from(models.values()).sort((a, b) => a.name.localeCompare(b.name));
+function quantFromTag(tag) {
+  if (!tag) return null;
+  const m = String(tag).match(/(IQ?[0-9]+(?:_[A-Z0-9]+)*|Q[0-9]+(?:_[A-Z0-9]+)*)/i);
+  return m ? m[1].toUpperCase() : null;
 }
+
 
 function listAllLocalGGUFPaths() {
   const out = [];
@@ -268,57 +236,222 @@ function listAllLocalGGUFPaths() {
   return uniqPaths;
 }
 
+function digestFromString(val) {
+  if (!val) return '';
+  const m = String(val).match(/sha256[-:]([0-9a-f]{64})/i);
+  return m ? m[1].toLowerCase() : '';
+}
+
+const MANIFEST_REGISTRY = 'registry.ollama.ai';
+
+function parseManifestMeta(filePath, root) {
+  let stat;
+  try { stat = fs.statSync(filePath); } catch { return null; }
+  let text;
+  try { text = fs.readFileSync(filePath, 'utf8'); } catch { return null; }
+  let manifest;
+  try { manifest = JSON.parse(text); } catch { return null; }
+
+  const rel = path.relative(root, filePath);
+  const parts = rel.split(path.sep).filter(Boolean);
+  if (!parts.length) return null;
+  let idx = parts.indexOf(MANIFEST_REGISTRY);
+  if (idx === -1) idx = 0;
+  const owner = parts[idx + 1];
+  const name = parts[idx + 2];
+  const tagParts = parts.slice(idx + 3);
+  if (!owner || !name || !tagParts.length) return null;
+  const tag = tagParts.join('/');
+  const id = owner === 'library' ? `${name}:${tag}` : `${owner}/${name}:${tag}`;
+
+  const created = Number.isFinite(stat.mtimeMs) ? Math.floor(stat.mtimeMs / 1000) : Math.floor(stat.mtime.getTime() / 1000);
+
+  const layers = Array.isArray(manifest.layers) ? manifest.layers : [];
+  const modelLayer = layers.find((layer) => /application\/vnd\.ollama\.image\.model/.test(String(layer?.mediaType || '')));
+  if (!modelLayer || !modelLayer.digest) return null;
+  const templateLayer = layers.find((layer) => /application\/vnd\.ollama\.image\.template/.test(String(layer?.mediaType || '')));
+  const licenseLayer = layers.find((layer) => /application\/vnd\.ollama\.image\.license/.test(String(layer?.mediaType || '')));
+  const paramsLayer = layers.find((layer) => /application\/vnd\.ollama\.image\.params/.test(String(layer?.mediaType || '')));
+
+  const digest = normalizeDigest(modelLayer.digest);
+  let size = Number(modelLayer.size) || 0;
+  let blobPath = '';
+  if (digest) {
+    blobPath = blobPathForDigest(digest) || '';
+    if ((!size || !Number.isFinite(size)) && blobPath && isFile(blobPath)) {
+      try { size = fs.statSync(blobPath).size; } catch { size = 0; }
+    }
+  }
+
+  const config = typeof manifest.config === 'object' ? manifest.config : {};
+  const quantization = quantFromTag(tag) || quantFromPath(blobPath || '') || null;
+  const parameterSize = parameterSizeFrom(tag) || parameterSizeFrom(name) || null;
+  const family = config.model_family || familyFromName(name) || familyFromName(id) || null;
+  const families = Array.isArray(config.model_families) ? config.model_families : (config.model_families ? [config.model_families] : null);
+  const format = config.model_format || 'gguf';
+  const parentModel = config.parent_model || null;
+  const modelType = config.model_type || null;
+
+  return {
+    id,
+    owner: owner === 'library' ? 'library' : owner,
+    created,
+    digest,
+    size: Number.isFinite(size) ? size : 0,
+    blobPath,
+    quantization,
+    parameterSize,
+    family,
+    families,
+    format,
+    parentModel,
+    modelType,
+    templateDigest: normalizeDigest(templateLayer?.digest),
+    licenseDigest: normalizeDigest(licenseLayer?.digest),
+    paramsDigest: normalizeDigest(paramsLayer?.digest),
+  };
+}
+
+function scanManifestModels() {
+  const entries = new Map();
+  for (const root of manifestRoots()) {
+    if (!isDir(root)) continue;
+    for (const filePath of walk(root, 6)) {
+      if (!isFile(filePath)) continue;
+      const meta = parseManifestMeta(filePath, root);
+      if (!meta) continue;
+      const prev = entries.get(meta.id);
+      if (!prev || (meta.created || 0) > (prev.created || 0)) {
+        entries.set(meta.id, meta);
+      }
+    }
+  }
+  return Array.from(entries.values());
+}
+
 export async function listModelsOllama() {
-  // 0) If an upstream llama.cpp server is configured, prefer its model list
+  const manifests = scanManifestModels();
+  if (manifests.length) {
+    const sorted = manifests
+      .slice()
+      .sort((a, b) => (b.created || 0) - (a.created || 0) || a.id.localeCompare(b.id));
+    return sorted.map((meta) => ({
+      name: meta.id,
+      model: meta.id,
+      modified_at: meta.created ? new Date(meta.created * 1000).toISOString() : '',
+      size: meta.size || 0,
+      digest: meta.digest ? `sha256:${meta.digest}` : '',
+      details: {
+        format: meta.format || 'gguf',
+        family: meta.family,
+        families: meta.families,
+        parent_model: meta.parentModel || null,
+        parameter_size: meta.parameterSize,
+        quantization_level: meta.quantization,
+      },
+    }));
+  }
+
   const server = getServer();
   if (server) {
     try {
-      const d = await httpGet(`${trimSlash(server)}/v1/models`);
-      const names = Array.isArray(d?.data) ? d.data.map(x => x.id || x.name).filter(Boolean) : [];
-      if (names.length) {
-        return names.map((name) => buildEntry({ name, digest: '', blobPath: '', fallbackStat: null }));
-      }
-    } catch { /* fall through to local */ }
+      const upstream = await httpGet(`${trimSlash(server)}/v1/models`);
+      if (Array.isArray(upstream?.models)) return upstream.models;
+    } catch { /* ignore */ }
   }
 
-  // 1) Prefer manifest-derived names + metadata
-  const entries = listFromManifestsDetailed();
-  if (entries.length) return entries;
-
-  // 2) Fallback to GGUF scan when no manifests present
   const paths = listAllLocalGGUFPaths();
-  const models = [];
-  for (const p of paths) {
+  return paths.map((p) => {
     const st = (() => { try { return fs.statSync(p); } catch { return null; } })();
     const base = path.basename(p, '.gguf');
-    // try digest from blobs path
-    const dd = extractSha256(p);
-    models.push(buildEntry({ name: base, digest: dd, blobPath: p, fallbackStat: st }));
-  }
-  return models;
+    const modified = st ? new Date((st.mtimeMs || st.mtime.getTime())).toISOString() : '';
+    const size = st ? st.size : 0;
+    return {
+      name: base,
+      model: base,
+      modified_at: modified,
+      size,
+      digest: '',
+      details: {
+        format: 'gguf',
+        family: familyFromName(base),
+        families: null,
+        parent_model: null,
+        parameter_size: parameterSizeFrom(base),
+        quantization_level: quantFromPath(p),
+      },
+    };
+  });
 }
 
 // OpenAI-style list response for /models route
 export async function listModelsOpenAI() {
+  const manifests = scanManifestModels();
+  if (manifests.length) {
+    const sorted = manifests
+      .slice()
+      .sort((a, b) => (b.created || 0) - (a.created || 0) || a.id.localeCompare(b.id));
+    const data = sorted.map((meta) => {
+      const entry = {
+        id: meta.id,
+        object: 'model',
+        created: meta.created || 0,
+        owned_by: meta.owner || 'library',
+      };
+      const metaExtra = {};
+      if (meta.digest) metaExtra.digest = `sha256:${meta.digest}`;
+      if (meta.size) metaExtra.size = meta.size;
+      if (meta.blobPath) metaExtra.blob_path = meta.blobPath;
+      if (meta.parameterSize) metaExtra.parameter_size = meta.parameterSize;
+      if (meta.quantization) metaExtra.quantization_level = meta.quantization;
+      if (meta.family) metaExtra.family = meta.family;
+      if (meta.families) metaExtra.families = meta.families;
+      if (meta.format) metaExtra.format = meta.format;
+      if (meta.modelType) metaExtra.model_type = meta.modelType;
+      if (meta.parentModel) metaExtra.parent_model = meta.parentModel;
+      if (meta.templateDigest) metaExtra.template_digest = `sha256:${meta.templateDigest}`;
+      if (meta.licenseDigest) metaExtra.license_digest = `sha256:${meta.licenseDigest}`;
+      if (meta.paramsDigest) metaExtra.params_digest = `sha256:${meta.paramsDigest}`;
+      if (Object.keys(metaExtra).length) entry.meta = metaExtra;
+      return entry;
+    });
+    return { object: 'list', data };
+  }
+
   const server = getServer();
   if (server) {
     try {
-      // Pass through upstream shape exactly to ensure byte-for-byte parity
-      return await httpGet(`${trimSlash(server)}/v1/models`);
-    } catch { /* fall back to local */ }
+      const upstream = await httpGet(`${trimSlash(server)}/v1/models`);
+      if (upstream) return upstream;
+    } catch { /* ignore */ }
   }
-  // Local fallback builds an OpenAI-like response from manifests/GGUFs
-  const detailed = await listModelsOllama();
-  const data = detailed.map((m) => {
-    const name = m.name || m.id || 'default';
-    const owned_by = name.includes('/') ? name.split('/', 1)[0] : 'library';
-    let created = 0;
-    if (m.modified_at) {
-      try { created = Math.floor(new Date(m.modified_at).getTime() / 1000); } catch {}
-    }
-    return { id: name, object: 'model', created, owned_by };
-  });
-  return { object: 'list', data };
+
+  const ggufs = listAllLocalGGUFPaths();
+  if (ggufs.length) {
+    const data = ggufs.map((p) => {
+      const id = path.basename(p).replace(/\.gguf$/i, '');
+      const owned_by = id.includes('/') ? id.split('/', 1)[0] : 'library';
+      let created = 0;
+      let size = 0;
+      try {
+        const st = fs.statSync(p);
+        created = Math.floor((st.mtimeMs || st.mtime.getTime()) / 1000);
+        size = st.size;
+      } catch {}
+      const entry = { id, object: 'model', created, owned_by };
+      const metaExtra = {};
+      if (size) metaExtra.size = size;
+      const quant = quantFromPath(p) || quantFromTag(id);
+      if (quant) metaExtra.quantization_level = quant;
+      const param = parameterSizeFrom(id);
+      if (param) metaExtra.parameter_size = param;
+      if (Object.keys(metaExtra).length) entry.meta = metaExtra;
+      return entry;
+    });
+    return { object: 'list', data };
+  }
+
+  return { object: 'list', data: [] };
 }
 
 async function getModelPath() {
