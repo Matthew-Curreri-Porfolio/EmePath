@@ -68,3 +68,4 @@ gateway/tools/curated/cache/*.json
 gateway/config/local.json
 /.continue
 /documents/*.txt
+cookie.txt
