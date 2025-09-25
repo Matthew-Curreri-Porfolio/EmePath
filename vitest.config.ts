@@ -6,6 +6,6 @@ export default defineConfig({
     include: ['gateway/tests/**/*.test.js', 'gateway/**/tests/**/*.test.js', 'tests/**/*.test.{js,ts}'],
     exclude: ['gateway/rooms/tests/**', 'gateway/memory/tests/**', 'node_modules/**'],
     environment: 'node',
-    setupFiles: ['tests/setup/mock-llama-server.js'],
+    setupFiles: ['tests/setup/start-llama-server.js'],
   },
 });

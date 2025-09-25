@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import { log, getTimeoutMs, escapeRe, scanDirectory } from "./utils.js";
+import { log, getTimeoutMs, escapeRe, scanDirectory, makeSnippets } from "./utils.js";
 import { OLLAMA, MODEL, MOCK, VERBOSE, LOG_BODY } from "./config.js";
 import { getIndex, setIndex } from "./state.js";
 import registerRoutes from "./routes/index.js";
@@ -15,6 +15,7 @@ registerRoutes(app, {
   getTimeoutMs,
   escapeRe,
   scanDirectory,
+  makeSnippets,
   OLLAMA,
   MODEL,
   MOCK,
