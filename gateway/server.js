@@ -5,10 +5,37 @@ import { OLLAMA, MODEL, MOCK, VERBOSE, LOG_BODY } from "./config.js";
 import { getIndex, setIndex } from "./state.js";
 import registerRoutes from "./routes/index.js";
 import { getConfig } from "./config/index.js";
+import { requestLogger } from "./middleware/logger.js";
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "4mb" }));
+// Import custom logger middleware
+app.use(requestLogger);
+
+// --- Begin custom logging middleware ---
+app.use((req, res, next) => {
+  const silent = process.env.LOG_SILENT === "1" || process.env.LOG_SILENT === "true";
+  if (silent) return next();
+  const start = Date.now();
+  const { method, url, headers } = req;
+  const body = process.env.LOG_BODY === "1" || process.env.LOG_BODY === "true" ? req.body : undefined;
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    log({
+      event: "http_request",
+      method,
+      url,
+      status: res.statusCode,
+      duration,
+      headers,
+      body,
+      ts: new Date().toISOString()
+    });
+  });
+  next();
+});
+// --- End custom logging middleware ---
 
 // Register all routes
 registerRoutes(app, {
