@@ -58,8 +58,11 @@ export function getConfig() {
     favorites: Array.isArray(merged.models?.favorites) ? merged.models.favorites : [],
   };
 
-  return { ports, searxng, prompts, models };
+  const runtime = {
+    keepLlamaOnExit: coerceBool(process.env.STACK_KEEP_LLAMA, merged.runtime?.keepLlamaOnExit ?? true),
+  };
+
+  return { ports, searxng, prompts, models, runtime };
 }
 
 export default { getConfig };
-

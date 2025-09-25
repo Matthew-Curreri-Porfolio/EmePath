@@ -38,6 +38,19 @@ Knobs:
   - `PROMPT_INCLUDE_PERSONAL=true|false`
   - `PROMPT_PERSONAL_INDEX=N` or `PROMPT_PERSONAL_RANDOM=1`
   - `MATT`, `ROOT`, `SYSTEM` names for policy placeholders
+  - Runtime: `STACK_KEEP_LLAMA=true|false` (default true; leave llama.cpp running on exit)
+
+Example local overrides (`gateway/config/local.json`):
+
+```
+{
+  "ports": { "gateway": 4000 },
+  "searxng": { "base": "http://127.0.0.1:8888" },
+  "models": { "favorites": ["jaahas/qwen3-abliterated/8b", "library/qwen3/8b"] },
+  "prompts": { "includePolicy": true, "includePersonal": true, "personalIndex": 0 },
+  "runtime": { "keepLlamaOnExit": true }
+}
+```
 
 ## Prompts
 
@@ -74,4 +87,3 @@ The gateway resolves models using Ollama manifests and prefers instruction/chat 
 ## Dev Notes
 
 The stack orchestrator and helpers live in `/scripts`. The repo’s CI (`.github/workflows/ci.yml`) runs a preflight check and unit/integration tests.
-

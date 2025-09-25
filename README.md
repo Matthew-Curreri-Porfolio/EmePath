@@ -40,6 +40,18 @@ Key knobs:
 - Models: `MODEL_SEARCH_ROOTS`, `LLAMA_MODEL_REF`, `LLAMA_MODEL_PATH`
 - Prompts: `PROMPT_INCLUDE_POLICY`, `PROMPT_INCLUDE_PERSONAL`, `PROMPT_PERSONAL_INDEX`, `PROMPT_PERSONAL_RANDOM`, `MATT`, `ROOT`, `SYSTEM`
 
+Example local override (`gateway/config/local.json`):
+
+```
+{
+  "ports": { "gateway": 4000 },
+  "searxng": { "base": "http://127.0.0.1:8888" },
+  "models": { "favorites": ["library/qwen3/8b"] },
+  "prompts": { "includePolicy": true, "includePersonal": true, "personalIndex": 2 },
+  "runtime": { "keepLlamaOnExit": true }
+}
+```
+
 ### Prompts
 
 All system prompts are defined in `gateway/prompts/prompts.json` and composed via `gateway/prompts/compose.js`.

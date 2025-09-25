@@ -355,7 +355,8 @@ async function main() {
     if (checkOnly) {
       const ok = await httpOk(`${gwBase}/health`);
       log({ event: 'check_complete', ok });
-      try { llamaProc?.kill('SIGTERM'); } catch {}
+      // In check mode, leave llama-server running by default (configurable)
+      if (!CFG.runtime.keepLlamaOnExit) { try { llamaProc?.kill('SIGTERM'); } catch {} }
       try { ollamaProc?.kill('SIGTERM'); } catch {}
       try { gwProc?.kill('SIGTERM'); } catch {}
       return process.exit(ok ? 0 : 1);
@@ -374,7 +375,8 @@ async function main() {
     // Keep alive until SIGINT/SIGTERM
     const shutdown = () => {
       log({ event: 'shutdown' });
-      try { llamaProc.kill('SIGTERM'); } catch {}
+      // Leave llama-server running unless explicitly disabled via config
+      if (!CFG.runtime.keepLlamaOnExit) { try { llamaProc?.kill('SIGTERM'); } catch {} }
       try { ollamaProc.kill('SIGTERM'); } catch {}
       try { gwProc.kill('SIGTERM'); } catch {}
     };
