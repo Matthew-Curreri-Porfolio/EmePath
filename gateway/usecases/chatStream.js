@@ -34,6 +34,13 @@ export async function chatStreamUseCase(req, res, deps) {
   const BASE = (process.env.LLAMACPP_SERVER || '').replace(/\/$/, '') || 'http://127.0.0.1:8080';
   const controller = new AbortController();
   const to = setTimeout(() => controller.abort(), timeoutMs);
+  let upstreamStream;
+  let upstreamRes;
+  const onClientClose = () => {
+    try { controller.abort(); } catch {}
+    try { upstreamStream?.destroy?.(); } catch {}
+  };
+  res.on('close', onClientClose);
   try {
     const payload = {
       model: model || 'default',
@@ -51,6 +58,7 @@ export async function chatStreamUseCase(req, res, deps) {
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
+    upstreamRes = r;
     if (!r.ok) {
       const raw = await r.text();
       log({ id, event: "error", where: "upstream_not_ok", type: "chat_stream", status: r.status, preview: raw.slice(0, 200) });
@@ -72,6 +80,7 @@ export async function chatStreamUseCase(req, res, deps) {
       res.status(502).json({ error: "invalid upstream stream" });
       return;
     }
+    upstreamStream = stream;
     stream.on("data", chunk => {
       res.write(chunk);
       res.flush?.();
@@ -96,5 +105,7 @@ export async function chatStreamUseCase(req, res, deps) {
     res.status(504).json({ error: "timeout/error" });
   } finally {
     clearTimeout(to);
+    res.off?.('close', onClientClose);
+    try { upstreamStream?.destroy?.(); } catch {}
   }
 }

@@ -3,10 +3,10 @@
 // and/or local indexed files. Produces JSON with key points, pros/cons, entities,
 // topics, controversies, consensus, and source attributions.
 
-import { searchWhoogle } from "./whoogle.js";
 import { researchWeb } from "./research.js";
 import { makeSnippets } from "../utils.js";
 import { chat as llmChat } from "../lib/llm.js";
+import { composeSystem } from "../prompts/compose.js";
 
 function stripTags(html) {
   return String(html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -93,19 +93,7 @@ function buildPrompt({ query, compare = [] }, evidenceText) {
     ? `\n\nWhen relevant, include a comparison section across entities: ${compare.join(", ")}.`
     : "";
 
-  const sys = `You are Insight Engine. Using only the EVIDENCE blocks, extract structured insights.
-Return a strict JSON object with these fields:
-{
-  "keyPoints": [{"text": string, "confidence": number (0..1), "sources": [string]}],
-  "pros": [{"text": string, "sources": [string]}],
-  "cons": [{"text": string, "sources": [string]}],
-  "entities": [{"name": string, "type": string, "aliases": [string]}],
-  "topics": [{"label": string, "weight": number (0..1)}],
-  "controversies": [string],
-  "consensus": string,
-  "comparison": { optional: true, "dimensions": [string], "rows": [{"entity": string, "values": [string]}] }
-}
-Rules: Only use info grounded in EVIDENCE. List source ids like ["W1","L2"]. Output JSON only.`;
+  const sys = composeSystem('insights.system');
 
   const usr = `USER QUESTION:\n${query}${compareNote}\n\nEVIDENCE:\n${evidenceText}`;
   const messages = [
@@ -174,4 +162,3 @@ export async function insightsEngine(
 }
 
 export { insightsEngine as default };
-

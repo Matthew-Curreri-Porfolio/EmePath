@@ -1,4 +1,4 @@
-import { searchWhoogle } from "./whoogle.js";
+import { searchSearxng } from "./searxng.js";
 
 function decodeEntities(str) {
   if (!str) return "";
@@ -133,7 +133,7 @@ async function researchWeb(
     signal,
   } = {}
 ) {
-  const sr = await searchWhoogle(query, { base, num, site, lang, safe, fresh, signal });
+  const sr = await searchSearxng(query, { base, num, site, lang, safe, fresh, signal });
   if (!sr || !sr.ok) return { ok: false, error: (sr && sr.error) || "search_failed" };
   const results = Array.isArray(sr.results) ? sr.results : [];
   if (!results.length) return { ok: false, error: "no_results" };
@@ -177,4 +177,3 @@ async function researchWeb(
 }
 
 export { researchWeb };
-

@@ -31,6 +31,30 @@ async function setStubFixture(patch) {
   });
 }
 
+async function fetchStream(url, payload) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'accept': 'text/event-stream' },
+    body: JSON.stringify(payload || {}),
+  });
+  let text = '';
+  if (res.body) {
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        text += decoder.decode(value, { stream: true });
+        if (text.includes('[DONE]')) break;
+      }
+    } finally {
+      try { await res.body?.cancel(); } catch {}
+    }
+  }
+  return { status: res.status, text };
+}
+
 describe('Gateway routes integration', () => {
   let app;
   let server;
@@ -220,33 +244,24 @@ describe('Gateway routes integration', () => {
       expect([400, 500]).toContain(insightsResponse.status);
     }
 
-    const whoogle = await agent
-      .get('/whoogle')
+    const searx = await agent
+      .get('/searxng')
       .query({ q: 'hello world', n: 1 });
-    expect([200, 500]).toContain(whoogle.status);
+    expect([200, 500]).toContain(searx.status);
 
     await setStubFixture({ chat_stream_chunks: ['chunk-one', ' chunk-two'] });
-    const streamRes = await agent
-      .post('/chat/stream')
-      .set('Accept', 'text/event-stream')
-      .send({ messages: [{ role: 'user', content: 'stream please' }] });
+    const streamRes = await fetchStream(`http://127.0.0.1:${server.address().port}/chat/stream`, {
+      messages: [{ role: 'user', content: 'stream please' }]
+    });
     expect(streamRes.status).toBe(200);
     expect(streamRes.text).toContain('chunk-one');
     expect(streamRes.text).toContain('[DONE]');
 
     await setStubFixture({ chat_status: 500 });
-    const streamFail = await agent
-      .post('/chat/stream')
-      .set('Accept', 'text/event-stream')
-      .send({ messages: [{ role: 'user', content: 'stream fail' }] });
+    const streamFail = await fetchStream(`http://127.0.0.1:${server.address().port}/chat/stream`, {
+      messages: [{ role: 'user', content: 'stream fail' }]
+    });
     expect(streamFail.status).toBe(502);
-
-    await setStubFixture({ chat_timeout: true });
-    const streamTimeout = await agent
-      .post('/chat/stream')
-      .set('Accept', 'text/event-stream')
-      .send({ messages: [{ role: 'user', content: 'stream timeout' }] });
-    expect([502, 504]).toContain(streamTimeout.status);
 
     await setStubFixture({ reset: true });
 

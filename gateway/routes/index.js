@@ -26,7 +26,7 @@ import { runHwOptimizeUseCase, getHwProfileUseCase } from "../usecases/optimize.
 import { startLlamaServerUseCase, stopLlamaServerUseCase } from "../usecases/runtime.js";
 import { trainingGet, trainingPut, trainingPatch, trainingDelete, trainingBuild } from "../usecases/training.js";
 import { compressShortToLongUseCase, compressLongGlobalUseCase } from "../usecases/compress.js";
-import { searchWhoogle } from "../tools/whoogle.js";
+import { searchSearxng } from "../tools/searxng.js";
 import { searchCurated as searchCuratedLocal } from "../tools/curated/search.mjs";
 import { researchWeb } from "../tools/research.js";
 import { answerWeb } from "../tools/answers.js";
@@ -155,8 +155,8 @@ export default function registerRoutes(app, deps) {
     await (await import("../usecases/compress.js")).compressLongGlobalUseCase(req, res, deps);
   });
 
-  // Whoogle search endpoint
-  app.get("/whoogle", searchLimiter, validate(WhoogleSearchSchema), async (req, res) => {
+  // SearXNG search endpoint
+  app.get("/searxng", searchLimiter, validate(WhoogleSearchSchema), async (req, res) => {
     const query = req.query.q || req.query.query;
     const num = (() => {
       const raw = req.query.n ?? req.query.num;
@@ -171,13 +171,11 @@ export default function registerRoutes(app, deps) {
       return res.status(400).json({ ok: false, error: "missing query" });
     }
     try {
-      const result = await searchWhoogle(query, { base: process.env.WHOOGLE_BASE, num, site, lang, safe, fresh });
-      if (!result.ok) {
-        return res.status(500).json(result);
-      }
+      const result = await searchSearxng(query, { base: process.env.SEARXNG_BASE, num, site, lang, safe, fresh });
+      if (!result.ok) return res.status(500).json(result);
       res.json(result);
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e) });
+      res.status(500).json({ ok: false, error: String(e && e.message || e) });
     }
   });
 
@@ -220,7 +218,7 @@ export default function registerRoutes(app, deps) {
       return Number.isFinite(n) && n > 0 ? Math.min(n, 6) : undefined;
     })();
     const opts = {
-      base: process.env.WHOOGLE_BASE,
+      base: process.env.SEARXNG_BASE,
       num,
       fetchNum,
       concurrency,
@@ -290,7 +288,7 @@ export default function registerRoutes(app, deps) {
       const localK = req.query.localK ? Math.min(Math.max(1, Number(req.query.localK)), 20) : undefined;
       const opts = {
         mode,
-        base: process.env.WHOOGLE_BASE,
+        base: process.env.SEARXNG_BASE,
         num,
         fetchNum,
         concurrency,
@@ -332,7 +330,7 @@ export default function registerRoutes(app, deps) {
         useInsights: typeof data.useInsights !== 'undefined' ? (String(data.useInsights).toLowerCase() === 'true' || data.useInsights === true) : true,
         rounds: data.rounds ? Math.min(Math.max(1, Number(data.rounds)), 4) : 2,
         trace: typeof data.trace !== 'undefined' ? (String(data.trace).toLowerCase() === 'true' || data.trace === true) : false,
-        base: process.env.WHOOGLE_BASE,
+        base: process.env.SEARXNG_BASE,
         num,
         fetchNum,
         concurrency,
@@ -371,7 +369,7 @@ export default function registerRoutes(app, deps) {
 
       const opts = {
         mode,
-        base: process.env.WHOOGLE_BASE,
+        base: process.env.SEARXNG_BASE,
         num,
         fetchNum,
         concurrency,
@@ -412,7 +410,7 @@ export default function registerRoutes(app, deps) {
         iterations: data.iterations ? Math.min(Math.max(1, Number(data.iterations)), 10) : 2,
         perIter: data.perIter ? Math.min(Math.max(1, Number(data.perIter)), 10) : 2,
         difficulty: data.difficulty || 'hard',
-        base: process.env.WHOOGLE_BASE,
+        base: process.env.SEARXNG_BASE,
         num,
         fetchNum,
         concurrency,
@@ -460,7 +458,7 @@ export default function registerRoutes(app, deps) {
         mode: body.mode || 'hybrid',
         count: body.count || 5,
         horizonDays: body.horizonDays || 30,
-        base: process.env.WHOOGLE_BASE,
+        base: process.env.SEARXNG_BASE,
         num: body.num,
         fetchNum: body.fetchNum,
         concurrency: body.concurrency,
@@ -488,7 +486,7 @@ export default function registerRoutes(app, deps) {
       const { resolveDueForecasts } = await import("../tools/forecast.js");
       const opts = {
         limit: body.limit || 20,
-        base: process.env.WHOOGLE_BASE,
+        base: process.env.SEARXNG_BASE,
         num: body.num,
         fetchNum: body.fetchNum,
         concurrency: body.concurrency,
@@ -602,7 +600,7 @@ export default function registerRoutes(app, deps) {
 
       const opts = {
         mode,
-        base: process.env.WHOOGLE_BASE,
+        base: process.env.SEARXNG_BASE,
         num,
         fetchNum,
         concurrency,

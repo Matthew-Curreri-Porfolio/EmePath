@@ -1,4 +1,4 @@
-import { searchWhoogle } from "./whoogle.js";
+import { searchSearxng } from "./searxng.js";
 import { createHash } from "crypto";
 
 function decodeEntities(str) {
@@ -116,7 +116,7 @@ async function codeScout(
     signal,
   } = {}
 ) {
-  const sr = await searchWhoogle(query, { base, num, site, fresh, safe: false, lang: "en", signal });
+  const sr = await searchSearxng(query, { base, num, site, fresh, safe: false, lang: "en", signal });
   if (!sr || !sr.ok) return { ok: false, error: (sr && sr.error) || "search_failed" };
   const results = Array.isArray(sr.results) ? sr.results : [];
   if (!results.length) return { ok: false, error: "no_results" };
@@ -154,4 +154,3 @@ async function codeScout(
 }
 
 export { codeScout };
-

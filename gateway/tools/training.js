@@ -6,46 +6,30 @@ import { insightsEngine } from "./insights.js";
 import { debateEngine } from "./debate.js";
 import { planEngine } from "./plan.js";
 import { researchWeb } from "./research.js";
+import { composeSystem } from "../prompts/compose.js";
 
 function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
 
 function buildQuestionSynthPrompt(topic, n=3, difficulty='hard', evidence='') {
-  const sys = `You are a curriculum designer. Create complex, multi-hop questions grounded in the evidence.
-Return strict JSON: { "questions": [string] }.
-Each question should require reasoning across 2-3 concepts, include constraints, and be realistic for practitioners.
-Difficulty: ${difficulty}. Output JSON only.`;
+  const sys = composeSystem('training.question_synth', { difficulty });
   const usr = `TOPIC: ${topic}\n\nEVIDENCE:\n${evidence}\n\nCOUNT: ${n}`;
   return [ { role:'system', content: sys }, { role:'user', content: usr } ];
 }
 
 function buildGraderPrompt(question, answer, debate, plan, sources) {
-  const sys = `You are an expert grader for reasoning and methodology.
-Return strict JSON:
-{
-  "score": number (0..1),
-  "logic": {"valid": boolean, "issues": [string]},
-  "evidenceUse": {"grounded": boolean, "notes": [string]},
-  "methodology": {"strengths": [string], "weaknesses": [string], "improvements": [string]},
-  "nextDrills": [string]
-}
-Rules: be strict but constructive. Penalize hallucinations or missing verification. Output JSON only.`;
+  const sys = composeSystem('training.grader');
   const usr = `QUESTION:\n${question}\n\nANSWER:\n${answer}\n\nDEBATE:\n${JSON.stringify(debate||{}, null, 2)}\n\nPLAN:\n${JSON.stringify(plan||{}, null, 2)}\n\nSOURCES:\n${JSON.stringify(sources||[], null, 2)}`;
   return [ { role:'system', content: sys }, { role:'user', content: usr } ];
 }
 
 function buildMethodologySynthPrompt(topic, prior, improvements) {
-  const sys = `You are a methodology architect. Merge improvements into a concise protocol.
-Return strict JSON: { "protocol": string, "principles": [string], "checks": [string] }.
-Protocol should be stepwise and verifiable. Output JSON only.`;
+  const sys = composeSystem('training.methodology_synth');
   const usr = `TOPIC: ${topic}\nPRIOR:\n${typeof prior === 'string' ? prior : JSON.stringify(prior||{}, null, 2)}\n\nIMPROVEMENTS:\n${JSON.stringify(improvements||[], null, 2)}`;
   return [ { role:'system', content: sys }, { role:'user', content: usr } ];
 }
 
 function buildSolutionPrompt(question, insights, debate, plan) {
-  const sys = `You are a solution synthesizer. Produce a grounded, concise solution with citations.
-Return strict JSON: { "solution": string, "keyCitations": [string], "limits": [string] }.
-Use inline citations like [W1] or [L2] consistent with sources.
-If the plan includes verification steps, summarize pass/fail criteria. Output JSON only.`;
+  const sys = composeSystem('training.solution');
   const usr = `QUESTION: ${question}\n\nINSIGHTS:\n${JSON.stringify(insights?.insights||{}, null, 2)}\n\nDEBATE VERDICT:\n${JSON.stringify(debate?.debate?.verdict||{}, null, 2)}\n\nPLAN SUMMARY:\n${JSON.stringify(plan?.plan?.steps?.slice(0,4)||[], null, 2)}\n`;
   return [ { role:'system', content: sys }, { role:'user', content: usr } ];
 }

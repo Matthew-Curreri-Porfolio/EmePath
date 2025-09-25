@@ -21,7 +21,14 @@
     "stub:llama": "node scripts/start-llama-stub.js",
     "stub:llama:error": "node scripts/start-llama-stub.js --fixture tests/fixtures/llama_stub.error.json",
     "stub:llama:delay": "node scripts/start-llama-stub.js --fixture tests/fixtures/llama_stub.delay.json",
-    "stub:llama:stream": "node scripts/start-llama-stub.js --fixture tests/fixtures/llama_stub.stream.json"
+    "stub:llama:stream": "node scripts/start-llama-stub.js --fixture tests/fixtures/llama_stub.stream.json",
+    "start": "node scripts/start-stack.js",
+    "stack:start": "node scripts/start-stack.js",
+    "stack:searx": "node scripts/start-stack.js --searxng-only",
+    "stack:check": "node scripts/start-stack.js --check",
+    "ci": "npm run stack:check && vitest run -c vitest.config.ts",
+    "searx:compose:up": "docker compose -f scripts/docker-compose.searxng.yml up -d || docker-compose -f scripts/docker-compose.searxng.yml up -d",
+    "searx:compose:down": "docker compose -f scripts/docker-compose.searxng.yml down || docker-compose -f scripts/docker-compose.searxng.yml down"
   },
   "devDependencies": {
     "vitest": "^3.2.4"

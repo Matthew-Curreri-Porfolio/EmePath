@@ -24,7 +24,7 @@ Modules
 Conventions
 - Keep rate limiters defined in `routes/index.js` and pass them to modules as needed.
 - All validation schemas live in `validation/schemas.js` and are applied in modules.
-- Prefer env-based configuration for upstreams like `WHOOGLE_BASE`, `CURATED_MODE`, `CURATED_CACHE`.
+- Prefer env-based configuration for upstreams like `SEARXNG_BASE`, `CURATED_MODE`, `CURATED_CACHE`.
 
 Wiring
 - `routes/index.js` handles common middleware, request metrics, limiters, then calls:
@@ -35,4 +35,3 @@ Wiring
 Notes
 - If adding new endpoints, place them in the appropriate module and keep this file in sync.
 - Avoid adding route handlers directly in `routes/index.js` beyond module registration.
-

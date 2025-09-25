@@ -1,5 +1,6 @@
-import { searchWhoogle } from "./whoogle.js";
+import { searchSearxng } from "./searxng.js";
 import { chat as llmChat } from "../lib/llm.js";
+import { composeSystem } from "../prompts/compose.js";
 
 function decodeEntities(str) {
   if (!str) return "";
@@ -93,7 +94,7 @@ export async function answerWeb(
     signal,
   } = {}
 ) {
-  const sr = await searchWhoogle(query, { base, num, site, lang, safe, fresh, signal });
+  const sr = await searchSearxng(query, { base, num, site, lang, safe, fresh, signal });
   if (!sr || !sr.ok) return { ok: false, error: (sr && sr.error) || "search_failed" };
   const results = Array.isArray(sr.results) ? sr.results : [];
   if (!results.length) return { ok: false, error: "no_results" };
@@ -120,7 +121,7 @@ export async function answerWeb(
   if (!contexts.length) return { ok: false, error: "no_context" };
 
   const evidence = contexts.join("\n\n");
-  const sys = `You are an answer engine. Using only the EVIDENCE below, answer the USER question concisely. Cite sources inline like [1], [2], etc. If unsure, say you don't know.`;
+  const sys = composeSystem('answers.system');
   const usr = `USER QUESTION:\n${query}\n\nEVIDENCE:\n${evidence}`;
   const messages = [
     { role: 'system', content: sys },
@@ -134,4 +135,3 @@ export async function answerWeb(
     return { ok: false, error: String(e && e.message || e), sources };
   }
 }
-

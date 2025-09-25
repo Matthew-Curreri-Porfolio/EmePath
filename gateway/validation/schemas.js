@@ -141,7 +141,7 @@ export const ActiveAnswerSchema = z
     path: ["q"],
   });
 
-// Research (GET) — builds on whoogle, plus fetch/crawl knobs
+// Research (GET) — builds on SearXNG, plus fetch/crawl knobs
 export const ResearchSchema = z
   .object({
     q: z.string().min(1).optional(),

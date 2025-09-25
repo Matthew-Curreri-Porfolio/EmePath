@@ -37,7 +37,7 @@ app.use((req, res, next) => {
 
 // Optional: background auto-resolver for due forecasts
 // Enable with: FORECAST_AUTORESOLVE=true
-// Tuning: FORECAST_AUTORESOLVE_MS (default 6h), FORECAST_LIMIT, WHOOGLE_BASE, etc.
+// Tuning: FORECAST_AUTORESOLVE_MS (default 6h), FORECAST_LIMIT, SEARXNG_BASE, etc.
 if (String(process.env.FORECAST_AUTORESOLVE).toLowerCase() === 'true') {
   const intervalMs = (() => {
     const n = Number(process.env.FORECAST_AUTORESOLVE_MS);
@@ -50,7 +50,7 @@ if (String(process.env.FORECAST_AUTORESOLVE).toLowerCase() === 'true') {
       const limit = Number(process.env.FORECAST_LIMIT) || 50;
       const result = await resolveDueForecasts({
         limit,
-        base: process.env.WHOOGLE_BASE,
+        base: process.env.SEARXNG_BASE,
         num: Number(process.env.FORECAST_NUM) || 6,
         fetchNum: Number(process.env.FORECAST_FETCH_NUM) || 4,
         concurrency: Number(process.env.FORECAST_CONCURRENCY) || 3,

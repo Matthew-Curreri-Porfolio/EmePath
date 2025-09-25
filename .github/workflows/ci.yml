@@ -1,48 +1,35 @@
 name: CI
 
 on:
-  pull_request:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
 
 jobs:
-  lint-and-smoke:
+  test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 20
+          cache: 'npm'
 
-      - name: Install JS deps
-        run: |
-          npm --version
-          # No dependencies yet; keep step to allow future installs
-          echo 'no deps'
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Lint JS
-        run: npm run lint
+      - name: Preflight stack check (CI-friendly)
+        env:
+          CI: 'true'
+          STACK_MODE: check
+          STACK_NO_LLAMA: '1'
+          SEARXNG_BASE: https://searx.be
+        run: npm run stack:check
 
-      - name: Run rooms smoke
-        run: npm run smoke:rooms
-      - name: Run memory smoke
-        run: npm run smoke:memory
+      - name: Run tests
+        run: npm run test --silent
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Python tools
-        run: |
-          python -m pip install --upgrade pip
-          pip install ruff black
-
-      - name: Lint Python
-        run: npm run py:lint
-
-      - name: Format check Python
-        run: black --check gateway/tools

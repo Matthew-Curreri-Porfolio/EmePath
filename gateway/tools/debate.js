@@ -3,21 +3,11 @@
 
 import { chat as llmChat } from "../lib/llm.js";
 import { insightsEngine } from "./insights.js";
+import { composeSystem } from "../prompts/compose.js";
 
 function buildDebatePrompt(question, evidenceText, { rounds=2, trace=false } = {}) {
-  const sys = `You are orchestrating a structured debate.
-Use only the EVIDENCE to argue. Debate roles: Pro, Con, Critic, Judge.
-Run ${rounds} rounds of Pro vs Con; Critic highlights gaps; Judge delivers final verdict.
-Return strict JSON:
-{
-  "verdict": {"position": "pro|con|uncertain", "confidence": number (0..1)},
-  "summary": string,
-  "arguments": [{"side":"pro|con","claim":string,"support":string,"sources":[string]}],
-  "unanswered": [string],
-  "nextQuestions": [string],
-  ${trace ? '"trace": [{"role":"Pro|Con|Critic|Judge","content":string}]' : '"trace": []'}
-}
-Rules: cite source ids like ["W1","L2"]. Output JSON only.`;
+  const trace_schema = trace ? '\\"trace\\": [{\\"role\\":\\"Pro|Con|Critic|Judge\\",\\"content\\":string}]' : '\\"trace\\": []';
+  const sys = composeSystem('debate.system', { rounds: String(rounds), trace_schema });
   const usr = `QUESTION: ${question}\n\nEVIDENCE:\n${evidenceText}`;
   return [ { role:'system', content: sys }, { role:'user', content: usr } ];
 }
@@ -75,4 +65,3 @@ export async function debateEngine(
 }
 
 export { debateEngine as default };
-

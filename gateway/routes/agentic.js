@@ -8,7 +8,6 @@ import { getModels } from "../usecases/models.js";
 import { runHwOptimizeUseCase, getHwProfileUseCase } from "../usecases/optimize.js";
 import { startLlamaServerUseCase, stopLlamaServerUseCase } from "../usecases/runtime.js";
 import { compressShortToLongUseCase, compressLongGlobalUseCase } from "../usecases/compress.js";
-import { searchWhoogle } from "../tools/whoogle.js";
 import { searchCurated as searchCuratedLocal } from "../tools/curated/search.mjs";
 import { researchWeb } from "../tools/research.js";
 import { answerWeb } from "../tools/answers.js";
@@ -56,7 +55,7 @@ export function registerAgentic(app, deps, limiters = {}) {
     const localK = req.query.localK ? Math.min(Math.max(1, Number(req.query.localK)), 20) : undefined;
     const opts = {
       mode: req.query.mode && ["web","local","hybrid"].includes(String(req.query.mode)) ? String(req.query.mode) : 'hybrid',
-      base: process.env.WHOOGLE_BASE,
+      base: process.env.SEARXNG_BASE,
       num,
       fetchNum,
       concurrency,
@@ -96,7 +95,7 @@ export function registerAgentic(app, deps, limiters = {}) {
       const fetchNum = req.query.fetchNum ? Math.min(Math.max(1, Number(req.query.fetchNum)), 6) : undefined;
       const concurrency = req.query.concurrency ? Math.min(Math.max(1, Number(req.query.concurrency)), 6) : undefined;
       const localK = req.query.localK ? Math.min(Math.max(1, Number(req.query.localK)), 20) : undefined;
-      const opts = { mode, base: process.env.WHOOGLE_BASE, num, fetchNum, concurrency, site: req.query.site, lang: req.query.lang, safe: typeof req.query.safe !== 'undefined' ? (String(req.query.safe).toLowerCase()==='true'||req.query.safe===true) : undefined, fresh: req.query.fresh, localIndex: typeof getIndex === 'function' ? getIndex() : undefined, localK, maxContextChars: req.query.maxContextChars ? Number(req.query.maxContextChars) : undefined, maxAnswerTokens: req.query.maxAnswerTokens ? Number(req.query.maxAnswerTokens) : undefined };
+      const opts = { mode, base: process.env.SEARXNG_BASE, num, fetchNum, concurrency, site: req.query.site, lang: req.query.lang, safe: typeof req.query.safe !== 'undefined' ? (String(req.query.safe).toLowerCase()==='true'||req.query.safe===true) : undefined, fresh: req.query.fresh, localIndex: typeof getIndex === 'function' ? getIndex() : undefined, localK, maxContextChars: req.query.maxContextChars ? Number(req.query.maxContextChars) : undefined, maxAnswerTokens: req.query.maxAnswerTokens ? Number(req.query.maxAnswerTokens) : undefined };
       const { insightsGraph } = await import("../tools/insights.js");
       const result = await insightsGraph(query, opts);
       if (!result.ok) return res.status(500).json(result);
@@ -115,7 +114,7 @@ export function registerAgentic(app, deps, limiters = {}) {
       const fetchNum = data.fetchNum ? Math.min(Math.max(1, Number(data.fetchNum)), 10) : undefined;
       const concurrency = data.concurrency ? Math.min(Math.max(1, Number(data.concurrency)), 6) : undefined;
       const localK = data.localK ? Math.min(Math.max(1, Number(data.localK)), 20) : undefined;
-      const opts = { mode, base: process.env.WHOOGLE_BASE, num, fetchNum, concurrency, site: data.site, lang: data.lang, safe: typeof data.safe !== 'undefined' ? (String(data.safe).toLowerCase()==='true'||data.safe===true) : undefined, fresh: data.fresh, localIndex: typeof getIndex === 'function' ? getIndex() : undefined, localK, maxContextChars: data.maxContextChars ? Number(data.maxContextChars) : undefined, maxAnswerTokens: data.maxAnswerTokens ? Number(data.maxAnswerTokens) : undefined };
+      const opts = { mode, base: process.env.SEARXNG_BASE, num, fetchNum, concurrency, site: data.site, lang: data.lang, safe: typeof data.safe !== 'undefined' ? (String(data.safe).toLowerCase()==='true'||data.safe===true) : undefined, fresh: data.fresh, localIndex: typeof getIndex === 'function' ? getIndex() : undefined, localK, maxContextChars: data.maxContextChars ? Number(data.maxContextChars) : undefined, maxAnswerTokens: data.maxAnswerTokens ? Number(data.maxAnswerTokens) : undefined };
       const { planEngine } = await import("../tools/plan.js");
       const result = await planEngine(data, opts);
       if (!result.ok) return res.status(500).json(result);
@@ -134,7 +133,7 @@ export function registerAgentic(app, deps, limiters = {}) {
       const fetchNum = data.fetchNum ? Math.min(Math.max(1, Number(data.fetchNum)), 10) : undefined;
       const concurrency = data.concurrency ? Math.min(Math.max(1, Number(data.concurrency)), 6) : undefined;
       const localK = data.localK ? Math.min(Math.max(1, Number(data.localK)), 20) : undefined;
-      const opts = { mode, iterations: data.iterations ? Math.min(Math.max(1, Number(data.iterations)), 10) : 2, perIter: data.perIter ? Math.min(Math.max(1, Number(data.perIter)), 10) : 2, difficulty: data.difficulty || 'hard', base: process.env.WHOOGLE_BASE, num, fetchNum, concurrency, site: data.site, lang: data.lang, safe: typeof data.safe !== 'undefined' ? (String(data.safe).toLowerCase()==='true'||data.safe===true) : undefined, fresh: data.fresh, localIndex: typeof getIndex === 'function' ? getIndex() : undefined, localK, maxContextChars: data.maxContextChars ? Number(data.maxContextChars) : undefined, maxAnswerTokens: data.maxAnswerTokens ? Number(data.maxAnswerTokens) : undefined, persist: typeof data.persist !== 'undefined' ? (String(data.persist).toLowerCase()==='true'||data.persist===true) : false, setLongTerm: undefined, userId: undefined, workspaceId: undefined, datasetPath: data.datasetPath };
+      const opts = { mode, iterations: data.iterations ? Math.min(Math.max(1, Number(data.iterations)), 10) : 2, perIter: data.perIter ? Math.min(Math.max(1, Number(data.perIter)), 10) : 2, difficulty: data.difficulty || 'hard', base: process.env.SEARXNG_BASE, num, fetchNum, concurrency, site: data.site, lang: data.lang, safe: typeof data.safe !== 'undefined' ? (String(data.safe).toLowerCase()==='true'||data.safe===true) : undefined, fresh: data.fresh, localIndex: typeof getIndex === 'function' ? getIndex() : undefined, localK, maxContextChars: data.maxContextChars ? Number(data.maxContextChars) : undefined, maxAnswerTokens: data.maxAnswerTokens ? Number(data.maxAnswerTokens) : undefined, persist: typeof data.persist !== 'undefined' ? (String(data.persist).toLowerCase()==='true'||data.persist===true) : false, setLongTerm: undefined, userId: undefined, workspaceId: undefined, datasetPath: data.datasetPath };
       if (opts.persist) {
         try { const { setLongTerm } = await import("../db/db.js"); opts.setLongTerm = setLongTerm; if (data.userId) opts.userId = Number(data.userId); if (data.workspaceId) opts.workspaceId = String(data.workspaceId); } catch {}
       }

@@ -47,15 +47,9 @@ async function callOllamaChat(_OLLAMA, model, messages, _keepAlive){
   return content;
 }
 
+import { composeSystem } from '../prompts/compose.js';
 function loraDistillerSystemPrompt(){
-  return [
-    "You are a data-distillation agent. Convert the given chat history into LoRA training examples.",
-    "Output JSONL only. One object per line.",
-    "Keep only task-solving pairs; drop chit-chat and secrets.",
-    "Schema keys: id, trainid, conversationId, turnIndex, part, totalParts, instruction, input, output, tags, language, source, memidRefs, createdAt, updatedAt.",
-    "Second-precision ISO timestamps. If unknown, use current UTC seconds.",
-    "Do not include any commentary."
-  ].join(" ");
+  return composeSystem('compress.lora_distiller');
 }
 
 function makeChatHistoryFromMemory(shortItems){

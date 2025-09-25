@@ -3,6 +3,7 @@
 
 import { chat as llmChat } from "../lib/llm.js";
 import { insightsEngine } from "./insights.js";
+import { composeSystem } from "../prompts/compose.js";
 import { researchWeb } from "./research.js";
 import { insertForecast, listForecasts, listDueForecasts, resolveForecast } from "../db/db.js";
 
@@ -10,26 +11,13 @@ function nowIso() { return new Date().toISOString(); }
 function addDays(days) { const d = new Date(); d.setDate(d.getDate()+days); return d.toISOString(); }
 
 function seedPrompt(topic, horizonDays, count, insights) {
-  const sys = `You are a forecaster. Propose likely world events and measurable outcomes.
-Return strict JSON: {
-  "forecasts": [{
-    "question": string,
-    "resolution_criteria": string,
-    "horizon_ts": string (ISO timestamp within ${horizonDays} days),
-    "probability": number (0..1),
-    "rationale": string,
-    "methodology_tags": [string]
-  }]
-}
-Rules: be specific and testable. Include clear resolution sources (who will publish the outcome).`;
+  const sys = composeSystem('forecast.seed_system', { horizonDays: String(horizonDays) });
   const usr = `TOPIC: ${topic}\nHORIZON_DAYS: ${horizonDays}\nCOUNT: ${count}\nINSIGHTS:\n${JSON.stringify(insights?.insights || {}, null, 2)}`;
   return [ { role:'system', content: sys }, { role:'user', content: usr } ];
 }
 
 function judgePrompt(question, resolution_criteria, researchSummary) {
-  const sys = `You are a resolution judge. Decide if the outcome occurred per criteria.
-Return strict JSON: { "outcome": "yes|no|unknown", "confidence": number (0..1), "notes": string }.
-Use only the research summary. Be conservative if uncertain.`;
+  const sys = composeSystem('forecast.judge_system');
   const usr = `QUESTION: ${question}\nCRITERIA: ${resolution_criteria}\n\nRESEARCH:\n${researchSummary}`;
   return [ { role:'system', content: sys }, { role:'user', content: usr } ];
 }

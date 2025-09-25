@@ -3,6 +3,7 @@
 
 import { chat as llmChat } from "../lib/llm.js";
 import { insightsEngine } from "./insights.js";
+import { composeSystem } from "../prompts/compose.js";
 import { makeSnippets } from "../utils.js";
 
 function pickLocalHits(index, query, k = 6) {
@@ -50,20 +51,7 @@ function buildEvidence({ mode, insights, localIndex, query, localK=6, maxContext
 }
 
 function planPrompt({ query, target='general', constraints, envOs='linux', risk='medium', maxSteps=12 }, evidenceText) {
-  const sys = `You are a cautious runbook planner. Create a step-by-step plan that is safe and verifiable.
-Return strict JSON:
-{
-  "title": string,
-  "assumptions": [string],
-  "prerequisites": [string],
-  "steps": [
-    {"title": string, "rationale": string, "command": string|null, "expect": string, "verify": string, "rollback": string}
-  ],
-  "risks": [{"desc": string, "mitigations": [string]}],
-  "notes": [string]
-}
-Rules: Never include destructive actions without a rollback and explicit warnings. Tailor commands for ${envOs}.
-Prefer idempotent steps. Output JSON only.`;
+  const sys = composeSystem('plan.system', { envOs });
   const usr = `TASK: ${query}\nTARGET: ${target}\nRISK: ${risk}\nCONSTRAINTS: ${constraints||'(none)'}\n\nEVIDENCE:\n${evidenceText}`;
   return [ { role:'system', content: sys }, { role:'user', content: usr } ];
 }
@@ -103,9 +91,13 @@ export async function planEngine(
 
   const messages = planPrompt({ query, target, constraints, envOs, risk, maxSteps }, evidenceText);
   try {
-    const r = await llmChat({ messages, temperature: 0.2, maxTokens: maxAnswerTokens, timeoutMs: 70000 });
+    const r = await llmChat({ messages, temperature: 0.2, maxTokens: maxAnswerTokens, timeoutMs: 70000, json: true });
     let plan;
-    try { plan = JSON.parse(r?.content || '{}'); } catch { plan = { notes:[String(r?.content||'').trim()] } }
+    try { plan = JSON.parse(r?.content || '{}'); } catch { plan = null; }
+    // Validate minimal contract: require steps[] to avoid returning a misleading 200 with junk
+    if (!plan || !Array.isArray(plan.steps) || plan.steps.length === 0) {
+      return { ok:false, error:'invalid_plan', notes: r?.content ? String(r.content).slice(0, 200) : undefined };
+    }
     return { ok:true, query, mode, plan, sources };
   } catch (e) {
     return { ok:false, error:String(e && e.message || e) };
@@ -113,4 +105,3 @@ export async function planEngine(
 }
 
 export { planEngine as default };
-

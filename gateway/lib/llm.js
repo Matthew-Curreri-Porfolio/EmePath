@@ -1,5 +1,6 @@
 // gateway/lib/llm.js
 import { spawn } from 'child_process';
+import { getPrompt } from '../prompts/index.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -133,7 +134,7 @@ function normalizeMessages(messages = []) {
 export async function chat({ messages, model, temperature = 0.2, maxTokens = DEFAULT_MAX_TOKENS, timeoutMs = 120000, outputContract, json = false }) {
   const baseMsgs = normalizeMessages(messages);
   const msgs = outputContract ? [
-    { role: 'system', content: 'Output Contract: Respond ONLY with content that strictly matches the contract. Do not include explanations, prefaces, or trailing commentary. If you cannot comply, output a JSON error {"error":"contract_violation"}.' },
+    { role: 'system', content: getPrompt('llm.output_contract') },
     { role: 'system', content: toStr(outputContract) },
     ...baseMsgs,
   ] : baseMsgs;

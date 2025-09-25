@@ -3,6 +3,7 @@
 
 import { researchWeb } from "./research.js";
 import { chat as llmChat } from "../lib/llm.js";
+import { composeSystem } from "../prompts/compose.js";
 import { makeSnippets } from "../utils.js";
 
 function stripTags(html) {
@@ -82,15 +83,7 @@ function buildEvidenceBlocks({ web, local }, { maxContextChars = 18000 } = {}) {
 }
 
 function graphPrompt(query, evidenceText) {
-  const sys = `You are a knowledge-graph builder. Using only the EVIDENCE blocks, extract entities and relations.
-Return strict JSON with shape:
-{
-  "nodes": [{"id": string, "label": string, "type": string, "aliases": [string]}],
-  "edges": [{"source": string, "target": string, "type": string, "weight": number (0..1), "sources": [string]}],
-  "clusters": [{"id": string, "label": string, "members": [string]}],
-  "notes": [string]
-}
-Rules: Use concise labels; choose stable node ids (lowercase, hyphens). Only use evidence; include source ids like ["W1","L2"]. Output JSON only.`;
+  const sys = composeSystem('graph.system');
   const usr = `TOPIC: ${query}\n\nEVIDENCE:\n${evidenceText}`;
   return [
     { role: 'system', content: sys },
@@ -144,4 +137,3 @@ export async function graphInsights(
 }
 
 export { graphInsights as default };
-

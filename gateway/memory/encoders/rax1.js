@@ -1,5 +1,6 @@
 // RAX1 encoder with Python bridge, falling back to stub JSON if Python is unavailable.
 import { spawn } from 'child_process';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -9,10 +10,18 @@ const __dirname = path.dirname(__filename);
 function toUint8Array(str) { return new TextEncoder().encode(str); }
 function fromUint8Array(bytes) { return new TextDecoder().decode(bytes); }
 
+function resolvePythonBin() {
+  const explicit = process.env.GATEWAY_PYTHON || process.env.PYTHON;
+  if (explicit && fs.existsSync(explicit)) return explicit;
+  const condaPy = '/home/hmagent/miniconda3/envs/gateway/bin/python';
+  try { if (fs.existsSync(condaPy)) return condaPy; } catch {}
+  return 'python3';
+}
+
 function runPython(args, stdinStr) {
   return new Promise((resolve, reject) => {
     const scriptPath = path.resolve(__dirname, '../../tools/rax1_codec.py');
-    const pyCmd = process.env.PYTHON || 'python3';
+    const pyCmd = resolvePythonBin();
     const child = spawn(pyCmd, [scriptPath, ...args], { stdio: ['pipe', 'pipe', 'pipe'] });
     let out = '';
     let err = '';
