@@ -22,7 +22,7 @@ export function registerAgentic(app, deps, limiters = {}) {
   app.post("/complete", validate(CompleteSchema), async (req, res) => { await completeUseCase(req, res, deps); });
   app.post("/chat", chatLimiter, validate(ChatSchema), async (req, res) => { await chatUseCase(req, res, deps); });
   app.post("/chat/stream", chatLimiter, validate(ChatSchema), async (req, res) => { await chatStreamUseCase(req, res, deps); });
-  app.get("/models", async (_req, res) => { const models = await getModels(); res.json({ models }); });
+  app.get("/models", async (_req, res) => { const payload = await getModels(); res.json(payload); });
 
   // Indexing / Query
   app.post("/scan", validate(ScanSchema), async (req, res) => { await scanUseCase(req, res, deps); });

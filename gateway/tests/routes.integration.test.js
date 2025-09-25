@@ -138,8 +138,10 @@ describe('Gateway routes integration', () => {
 
     const models = await agent.get('/models');
     expect(models.status).toBe(200);
-    expect(Array.isArray(models.body.models)).toBe(true);
-    expect(models.body.models.length).toBeGreaterThan(0);
+    // OpenAI-style: { object: 'list', data: [...] }
+    expect(models.body && (models.body.object === 'list' || models.body.object === undefined)).toBe(true);
+    const data = Array.isArray(models.body?.data) ? models.body.data : [];
+    expect(data.length).toBeGreaterThan(0);
 
     const completion = await agent.post('/complete').send({ language: 'js', prefix: 'const a =', suffix: '1;' });
     expect(completion.status).toBe(200);

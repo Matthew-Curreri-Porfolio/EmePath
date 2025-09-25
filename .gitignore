@@ -71,3 +71,5 @@ gateway/config/local.json
 /.continue
 /documents/*.txt
 cookie.txt
+nohup.out
+.stack.pids.json

@@ -150,10 +150,10 @@ def _ollama_model_entry_from_file(path: str) -> Dict[str, Any]:
     details = {
         "format": "gguf",
         "family": None,
-        "families": [],
+        "families": None,
         "parent_model": None,
         "parameter_size": param,       # e.g., "4B", "30B"
-        "quantization": quant,         # e.g., "Q6_K", "Q5_K_M", "IQ4_NL"
+        "quantization_level": quant,   # e.g., "Q6_K", "Q5_K_M", "IQ4_NL"
         "adapter_map": None,
     }
     return {
@@ -258,17 +258,43 @@ def list_models():
     try:
         r = requests.get(f"{GATEWAY_BASE}/models", timeout=TIMEOUT)
         r.raise_for_status()
-        payload = r.json()  # expect: { models: [...] }
-        models = payload.get("models") or []
-        # Normalize to OpenAI shape expected by your client: { data: [{id: ...}] }
-        data = []
-        for m in models:
-            if isinstance(m, dict):
-                mid = m.get("name") or m.get("id") or m.get("model") or "default"
-            else:
-                # m could be a path or a name; prefer basename without extension
-                mid = os.path.splitext(os.path.basename(str(m)))[0] or str(m)
-            data.append({"id": str(mid)})
+        payload = r.json()  # expect: OpenAI-style {object:'list', data:[...]} or legacy {models:[...]}
+        data: list[dict] = []
+        if isinstance(payload, dict) and isinstance(payload.get("data"), list):
+            for item in payload["data"]:
+                if isinstance(item, dict):
+                    data.append({
+                        "id": str(item.get("id") or item.get("name") or "default"),
+                        "object": str(item.get("object") or "model"),
+                        "created": int(item.get("created") or 0),
+                        "owned_by": str(item.get("owned_by") or (str(item.get("id") or "").split("/",1)[0] if "/" in str(item.get("id") or "") else "library")),
+                    })
+                else:
+                    data.append({"id": str(item), "object": "model", "created": 0, "owned_by": "library"})
+            return {"object": payload.get("object") or "list", "data": data}
+        # Legacy gateway shape: { models: [...] }
+        models = payload.get("models") if isinstance(payload, dict) else None
+        if isinstance(models, list):
+            for m in models:
+                if isinstance(m, dict):
+                    name = m.get("name") or m.get("id") or m.get("model") or "default"
+                    modified = m.get("modified_at")
+                else:
+                    name = os.path.splitext(os.path.basename(str(m)))[0] or str(m)
+                    modified = None
+                owned_by = "library"
+                if "/" in str(name):
+                    owned_by = str(name).split("/", 1)[0]
+                created = 0
+                if modified:
+                    try:
+                        if isinstance(modified, (int, float)):
+                            created = int(modified)
+                        else:
+                            created = int(datetime.fromisoformat(str(modified)).timestamp())
+                    except Exception:
+                        created = 0
+                data.append({"id": str(name), "object": "model", "created": created, "owned_by": owned_by})
         return {"object": "list", "data": data}
     except Exception as e:
         return oops(502, f"gateway fetch error: {e}")

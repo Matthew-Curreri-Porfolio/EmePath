@@ -42,8 +42,8 @@ export function registerPublic(app, deps) {
 
   // Models
   app.get("/models", async (_req, res) => {
-    const models = await getModels();
-    res.json({ models });
+    const payload = await getModels();
+    res.json(payload);
   });
 }
 

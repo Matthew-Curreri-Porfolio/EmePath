@@ -26,6 +26,8 @@
     "stack:start": "node scripts/start-stack.js --start",
     "stack:stop": "node scripts/start-stack.js --stop",
     "stack:shutdown": "node scripts/start-stack.js --stop",
+    "stop": "npm run -s stack:stop",
+    "restart": "npm run -s stack:stop && npm run -s stack:start",
     "stack:searx": "node scripts/start-stack.js --searxng-only",
     "stack:check": "node scripts/start-stack.js --check",
     "ci": "npm run stack:check && vitest run -c vitest.config.ts",

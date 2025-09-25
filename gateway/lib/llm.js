@@ -160,9 +160,51 @@ function tryJSON(text) {
 function collectManifestFiles() {
   const out = [];
   for (const root of manifestRoots()) {
-    for (const p of walk(root, /*depth*/6)) if (p.toLowerCase().endsWith('.json')) out.push(p);
+    for (const p of walk(root, /*depth*/8)) {
+      // Ollama manifests are regular files without extension
+      if (isFile(p)) out.push(p);
+    }
   }
   return out;
+}
+
+function idFromManifestPath(p) {
+  const parts = String(p).split(path.sep).filter(Boolean);
+  // Try to anchor at registry marker for robustness
+  let i = parts.lastIndexOf('registry.ollama.ai');
+  if (i !== -1 && parts.length >= i + 4) {
+    const owner = parts[i + 1];
+    const name = parts[i + 2];
+    const tag = parts[i + 3];
+    const isLibrary = owner === 'library';
+    return (isLibrary ? `${name}:${tag}` : `${owner}/${name}:${tag}`);
+  }
+  // Fallback to last 3 segments heuristic
+  if (parts.length >= 3) {
+    const owner = parts[parts.length - 3];
+    const name = parts[parts.length - 2];
+    const tag = parts[parts.length - 1];
+    const isLibrary = owner === 'library';
+    return (isLibrary ? `${name}:${tag}` : `${owner}/${name}:${tag}`);
+  }
+  return path.basename(p);
+}
+
+function digestFromManifestText(text) {
+  const j = tryJSON(text);
+  if (!j) return '';
+  // Prefer the model layer digest
+  const layers = Array.isArray(j.layers) ? j.layers : [];
+  for (const layer of layers) {
+    const mt = String(layer?.mediaType || '');
+    if (/application\/vnd\.ollama\.image\.model/.test(mt) && layer?.digest) {
+      return String(layer.digest).replace(/^sha256-/, '').replace(/^sha256:/, '');
+    }
+  }
+  // Fallback to config digest (less accurate for model blob)
+  const cfg = j.config?.digest || '';
+  if (cfg) return String(cfg).replace(/^sha256-/, '').replace(/^sha256:/, '');
+  return '';
 }
 
 function buildEntry({ name, digest, blobPath, fallbackStat }) {
@@ -197,12 +239,9 @@ function listFromManifestsDetailed() {
   for (const p of files) {
     let text = '';
     try { text = fs.readFileSync(p, 'utf8'); } catch { continue; }
-    const j = tryJSON(text) || {};
     const fallbackStat = (() => { try { return fs.statSync(p); } catch { return null; } })();
-    let name = j.fully_qualified_name || j.name || j.model || j.tag || guessNameFromManifestPath(p);
-    name = String(name || guessNameFromManifestPath(p));
-    const d1 = j.digest || '';
-    const d = extractSha256(text) || extractSha256(d1);
+    const name = idFromManifestPath(p);
+    const d = digestFromManifestText(text) || extractSha256(text);
     const blob = d ? blobPathForDigest(d) : '';
     const entry = buildEntry({ name, digest: d, blobPath: blob, fallbackStat });
     // Prefer entries with real blob size over ones without
@@ -230,6 +269,18 @@ function listAllLocalGGUFPaths() {
 }
 
 export async function listModelsOllama() {
+  // 0) If an upstream llama.cpp server is configured, prefer its model list
+  const server = getServer();
+  if (server) {
+    try {
+      const d = await httpGet(`${trimSlash(server)}/v1/models`);
+      const names = Array.isArray(d?.data) ? d.data.map(x => x.id || x.name).filter(Boolean) : [];
+      if (names.length) {
+        return names.map((name) => buildEntry({ name, digest: '', blobPath: '', fallbackStat: null }));
+      }
+    } catch { /* fall through to local */ }
+  }
+
   // 1) Prefer manifest-derived names + metadata
   const entries = listFromManifestsDetailed();
   if (entries.length) return entries;
@@ -245,6 +296,29 @@ export async function listModelsOllama() {
     models.push(buildEntry({ name: base, digest: dd, blobPath: p, fallbackStat: st }));
   }
   return models;
+}
+
+// OpenAI-style list response for /models route
+export async function listModelsOpenAI() {
+  const server = getServer();
+  if (server) {
+    try {
+      // Pass through upstream shape exactly to ensure byte-for-byte parity
+      return await httpGet(`${trimSlash(server)}/v1/models`);
+    } catch { /* fall back to local */ }
+  }
+  // Local fallback builds an OpenAI-like response from manifests/GGUFs
+  const detailed = await listModelsOllama();
+  const data = detailed.map((m) => {
+    const name = m.name || m.id || 'default';
+    const owned_by = name.includes('/') ? name.split('/', 1)[0] : 'library';
+    let created = 0;
+    if (m.modified_at) {
+      try { created = Math.floor(new Date(m.modified_at).getTime() / 1000); } catch {}
+    }
+    return { id: name, object: 'model', created, owned_by };
+  });
+  return { object: 'list', data };
 }
 
 async function getModelPath() {
