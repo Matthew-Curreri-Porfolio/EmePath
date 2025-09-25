@@ -13,14 +13,13 @@ const isTest = process.env.NODE_ENV === 'test';
 let db;
 const DB_PATH = isTest ? ':memory:' : path.resolve(process.cwd(), 'gateway', 'db', 'app.db');
 
+// Determine if a persistent DB already exists (before opening)
+const existedBefore = !isTest && fs.existsSync(DB_PATH);
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
-// Open database
-if (isTest) {
-  db = new Database(DB_PATH, { verbose: console.log });
-} else {
-  db = new Database(DB_PATH, { verbose: console.log });
-}
+// Open database with verbose logging only in tests or when creating a brand new DB
+const wantVerbose = isTest || (!existedBefore && process.env.DB_VERBOSE !== '0') || process.env.DB_VERBOSE === '1';
+db = new Database(DB_PATH, wantVerbose ? { verbose: console.log } : {});
 
 // Run migrations
 const migrationFiles = fs
@@ -42,59 +41,73 @@ function ensureColumn(dbInst, table, column, type) {
   }
 }
 
-for (const file of migrationFiles) {
-  const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8');
+// Only perform migrations/bootstrap when using test DB or when the persistent DB did not exist
+let needInit = isTest || !existedBefore;
+// If DB file exists but tables are missing (corrupted/partial), force init
+if (!needInit && !isTest) {
   try {
-    db.exec(sql);
+    const u = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").get();
+    const s = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='short_term_memory'").get();
+    const l = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='long_term_memory'").get();
+    if (!u || !u.name || !s || !s.name || !l || !l.name) needInit = true;
+  } catch { needInit = true; }
+}
+
+if (needInit) {
+  for (const file of migrationFiles) {
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8');
+    try {
+      db.exec(sql);
+    } catch (e) {
+      const msg = String((e && e.message) || e);
+      if (/duplicate column name:\s*working_tokens/i.test(msg)) {
+        console.warn('[migrate] working_tokens already present, skipping');
+      } else {
+        throw e;
+      }
+    }
+  }
+
+  // Ensure columns exist even if migration was commented/ran before
+  try {
+    ensureColumn(db, 'short_term_memory', 'working_tokens', 'BLOB');
+    ensureColumn(db, 'long_term_memory', 'working_tokens', 'BLOB');
+    ensureColumn(db, 'short_term_memory', 'memid', 'TEXT');
+    ensureColumn(db, 'long_term_memory', 'memid', 'TEXT');
+    ensureColumn(db, 'short_term_memory', 'created_at', 'DATETIME DEFAULT CURRENT_TIMESTAMP');
+    ensureColumn(db, 'long_term_memory', 'created_at', 'DATETIME DEFAULT CURRENT_TIMESTAMP');
   } catch (e) {
     const msg = String((e && e.message) || e);
-    if (/duplicate column name:\s*working_tokens/i.test(msg)) {
-      console.warn('[migrate] working_tokens already present, skipping');
+    if (/duplicate column name:/i.test(msg)) {
+      console.warn('[ensure] column already present, skipping');
     } else {
       throw e;
     }
   }
-}
 
-// Ensure columns exist even if migration was commented/ran before
-try {
-  ensureColumn(db, 'short_term_memory', 'working_tokens', 'BLOB');
-  ensureColumn(db, 'long_term_memory', 'working_tokens', 'BLOB');
-  ensureColumn(db, 'short_term_memory', 'memid', 'TEXT');
-  ensureColumn(db, 'long_term_memory', 'memid', 'TEXT');
-  ensureColumn(db, 'short_term_memory', 'created_at', 'DATETIME DEFAULT CURRENT_TIMESTAMP');
-  ensureColumn(db, 'long_term_memory', 'created_at', 'DATETIME DEFAULT CURRENT_TIMESTAMP');
-} catch (e) {
-  const msg = String((e && e.message) || e);
-  if (/duplicate column name:/i.test(msg)) {
-    console.warn('[ensure] column already present, skipping');
-  } else {
-    throw e;
+  // Backfill newly added columns so UNIQUE indexes can be applied safely
+  try {
+    db.exec(`UPDATE short_term_memory SET memid = COALESCE(NULLIF(memid, ''), 'default')`);
+    db.exec(`UPDATE long_term_memory SET memid = COALESCE(NULLIF(memid, ''), 'default')`);
+    db.exec(`UPDATE short_term_memory SET created_at = COALESCE(created_at, updated_at, CURRENT_TIMESTAMP)`);
+    db.exec(`UPDATE long_term_memory SET created_at = COALESCE(created_at, updated_at, CURRENT_TIMESTAMP)`);
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_short_term_memid ON short_term_memory(user_id, workspace_id, memid)`);
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_long_term_memid ON long_term_memory(user_id, workspace_id, memid)`);
+  } catch (e) {
+    console.warn('[ensure] memory index backfill warning:', String(e && e.message || e));
   }
-}
 
-// Backfill newly added columns so UNIQUE indexes can be applied safely
-try {
-  db.exec(`UPDATE short_term_memory SET memid = COALESCE(NULLIF(memid, ''), 'default')`);
-  db.exec(`UPDATE long_term_memory SET memid = COALESCE(NULLIF(memid, ''), 'default')`);
-  db.exec(`UPDATE short_term_memory SET created_at = COALESCE(created_at, updated_at, CURRENT_TIMESTAMP)`);
-  db.exec(`UPDATE long_term_memory SET created_at = COALESCE(created_at, updated_at, CURRENT_TIMESTAMP)`);
-  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_short_term_memid ON short_term_memory(user_id, workspace_id, memid)`);
-  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_long_term_memid ON long_term_memory(user_id, workspace_id, memid)`);
-} catch (e) {
-  console.warn('[ensure] memory index backfill warning:', String(e && e.message || e));
-}
-
-// Bootstrap a default admin user for development/testing if no users exist
-try {
-  const row = db.prepare('SELECT COUNT(1) AS c FROM users').get();
-  if (!row || Number(row.c) === 0) {
-    db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run(['admin', 'changethis']);
-    console.log('[bootstrap] created default admin user with password "changethis"');
+  // Bootstrap a default admin user for development/testing if no users exist
+  try {
+    const row = db.prepare('SELECT COUNT(1) AS c FROM users').get();
+    if (!row || Number(row.c) === 0) {
+      db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run(['admin', 'changethis']);
+      console.log('[bootstrap] created default admin user with password "changethis"');
+    }
+  } catch (e) {
+    // ignore if table not ready or any race in tests
+    console.warn('[bootstrap] default admin check failed:', String(e && e.message || e));
   }
-} catch (e) {
-  // ignore if table not ready or any race in tests
-  console.warn('[bootstrap] default admin check failed:', String(e && e.message || e));
 }
 
 export function run(sql, params = []) {
