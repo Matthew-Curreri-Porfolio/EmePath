@@ -10,4 +10,4 @@ services:
       - SEARXNG_HOSTNAME=localhost
       - SEARXNG_PORT=8080
     volumes:
-      - ./searxng:/etc/searxng
+      - ./searxng.settings.local.yml:/etc/searxng/settings.yml:ro

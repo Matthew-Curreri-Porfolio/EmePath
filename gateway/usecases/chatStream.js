@@ -1,18 +1,18 @@
 import { Readable } from "stream";
-import { GATEWAY_TIMEOUT_MS, MODEL, MOCK, VERBOSE, LOG_BODY, THINK } from "../config.js";
+import { MODEL, MOCK, VERBOSE, LOG_BODY, THINK } from "../config.js";
 
 // Stream chat via llama.cpp's OpenAI-compatible API (/v1/chat/completions)
 // Requires env `LLAMACPP_SERVER` to point at llama-server (e.g. http://127.0.0.1:8080)
 
 export async function chatStreamUseCase(req, res, deps) {
-  const { log } = deps;
+  const { log, getTimeoutMs } = deps;
   const id = Math.random().toString(36).slice(2, 10);
   const body = req.body || {};
   const messages = Array.isArray(body.messages) ? body.messages : [];
   const temperature = typeof body.temperature === 'number' ? body.temperature : 0.2;
   const maxTokens = typeof body.maxTokens === 'number' ? body.maxTokens : undefined;
   const model = body.model || MODEL;
-  const timeoutMs = Number(GATEWAY_TIMEOUT_MS || 300000);
+  const timeoutMs = Number(getTimeoutMs() || 300000);
 
   const t0 = performance.now();
   log({ id, event: "request_in", type: "chat_stream", model, messagesCount: messages.length, mock: MOCK });
@@ -70,39 +70,59 @@ export async function chatStreamUseCase(req, res, deps) {
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
-    let stream = r.body;
-    if (stream && typeof stream.on !== 'function' && typeof Readable?.fromWeb === 'function') {
+    const body = r.body;
+    // Handle both Web Streams (undici/WHATWG) and Node Readable streams robustly
+    if (body && typeof body.getReader === 'function') {
+      // WHATWG ReadableStream
+      const reader = body.getReader();
       try {
-        stream = Readable.fromWeb(stream);
-      } catch {}
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (value) {
+            const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+            res.write(chunk);
+            res.flush?.();
+          }
+        }
+        res.end();
+      } catch (err) {
+        const latencyErr = Math.round(performance.now() - t0);
+        const reason = err?.message || 'stream error';
+        log({ id, event: "error", where: "stream_read", type: "chat_stream", reason, latencyMs: latencyErr });
+        if (!res.headersSent) res.status(502).json({ error: "stream error" });
+        else try { res.end(); } catch {}
+      } finally {
+        try { await reader.cancel(); } catch {}
+      }
+      return;
+    }
+
+    let stream = body;
+    if (stream && typeof stream.on !== 'function' && typeof Readable?.fromWeb === 'function') {
+      try { stream = Readable.fromWeb(stream); } catch {}
     }
     if (!stream || typeof stream.on !== 'function') {
       res.status(502).json({ error: "invalid upstream stream" });
       return;
     }
     upstreamStream = stream;
-    stream.on("data", chunk => {
-      res.write(chunk);
-      res.flush?.();
-    });
+    stream.on("data", chunk => { res.write(chunk); res.flush?.(); });
     stream.on("error", err => {
       const latencyErr = Math.round(performance.now() - t0);
       const reason = err?.message || 'stream error';
       log({ id, event: "error", where: "stream", type: "chat_stream", reason, latencyMs: latencyErr });
-      if (!res.headersSent) {
-        res.status(502).json({ error: "stream error" });
-      } else {
-        try { res.end(); } catch {}
-      }
+      if (!res.headersSent) res.status(502).json({ error: "stream error" });
+      else try { res.end(); } catch {}
     });
-    stream.on("end", () => {
-      res.end();
-    });
+    stream.on("end", () => { res.end(); });
   } catch (e) {
     const latencyAll = Math.round(performance.now() - t0);
-    const reason = e?.name === "AbortError" ? "timeout" : (e?.message || "error");
+    const isAbort = e?.name === "AbortError" || /timeout/i.test(String(e?.message || e));
+    const reason = isAbort ? "timeout" : (e?.message || "error");
     log({ id, event: "error", where: "fetch", type: "chat_stream", reason, latencyMs: latencyAll });
-    res.status(504).json({ error: "timeout/error" });
+    // Treat upstream issues as Bad Gateway to align with tests
+    res.status(502).json({ error: isAbort ? "timeout" : "upstream error" });
   } finally {
     clearTimeout(to);
     res.off?.('close', onClientClose);

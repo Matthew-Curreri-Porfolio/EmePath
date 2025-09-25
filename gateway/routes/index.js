@@ -75,7 +75,7 @@ export default function registerRoutes(app, deps) {
       const routeLabel = req.route && req.route.path ? req.route.path : req.path;
       const dur = Date.now() - t0;
       httpMs.labels(routeLabel, req.method, String(res.statusCode)).observe(dur);
-      if (typeof log === "function") log("req", { id: req.id, m: req.method, p: req.path, s: res.statusCode, ms: dur });
+      if (typeof log === "function") log({ event: "req", id: req.id, m: req.method, p: req.path, s: res.statusCode, ms: dur });
     });
     next();
   });
@@ -627,7 +627,6 @@ export default function registerRoutes(app, deps) {
   });
 
   // legacy agentic routes removed — see routes/agentic.js
-}
   // Prompt preview (GET)
   app.get("/prompts/preview", (req, res) => {
     try {
@@ -656,3 +655,4 @@ export default function registerRoutes(app, deps) {
       res.status(500).json({ ok:false, error: String(e && e.message || e) });
     }
   });
+}

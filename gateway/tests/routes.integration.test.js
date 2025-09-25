@@ -24,10 +24,13 @@ const stubBase = `http://127.0.0.1:${llamaStub.port}`;
 let originalTimeout;
 
 async function setStubFixture(patch) {
+  // Guard against hanging if the stub becomes unavailable
+  const controller = AbortSignal.timeout(5000);
   await fetch(`${stubBase}/__fixture`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(patch || {}),
+    signal: controller,
   });
 }
 
@@ -36,6 +39,8 @@ async function fetchStream(url, payload) {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'accept': 'text/event-stream' },
     body: JSON.stringify(payload || {}),
+    // Ensure we don't hang forever on network issues
+    signal: AbortSignal.timeout(15000),
   });
   let text = '';
   if (res.body) {
