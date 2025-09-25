@@ -4,6 +4,7 @@ import { log, getTimeoutMs, escapeRe, scanDirectory, makeSnippets } from "./util
 import { OLLAMA, MODEL, MOCK, VERBOSE, LOG_BODY } from "./config.js";
 import { getIndex, setIndex } from "./state.js";
 import registerRoutes from "./routes/index.js";
+import { getConfig } from "./config/index.js";
 
 const app = express();
 app.use(cors());
@@ -25,7 +26,11 @@ registerRoutes(app, {
   setIndex,
 });
 
-const PORT = Number(process.env.GATEWAY_PORT || process.env.PORT || 3123);
+const CFG = getConfig();
+// Backfill env vars for downstream code that reads from process.env
+if (!process.env.SEARXNG_BASE) process.env.SEARXNG_BASE = CFG.searxng.base;
+if (!process.env.GATEWAY_PORT) process.env.GATEWAY_PORT = String(CFG.ports.gateway);
+const PORT = CFG.ports.gateway;
 app.listen(PORT, () => log({ event: "boot", msg: "gateway listening", url: `http://127.0.0.1:${PORT}` }));
 const REQUIRED_KEY = process.env.GATEWAY_API_KEY || "";
 app.use((req, res, next) => {

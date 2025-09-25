@@ -31,6 +31,8 @@ import { searchCurated as searchCuratedLocal } from "../tools/curated/search.mjs
 import { researchWeb } from "../tools/research.js";
 import { answerWeb } from "../tools/answers.js";
 import { registerModelResolver, resolveModelPath } from "./modelResolver.js";
+import { composeSystem } from "../prompts/compose.js";
+import { getPrompt as getBasePrompt } from "../prompts/index.js";
 
 import { validate } from "../middleware/validate.js";
 import {
@@ -626,3 +628,31 @@ export default function registerRoutes(app, deps) {
 
   // legacy agentic routes removed — see routes/agentic.js
 }
+  // Prompt preview (GET)
+  app.get("/prompts/preview", (req, res) => {
+    try {
+      const key = String(req.query.key || '').trim();
+      if (!key) return res.status(400).json({ ok:false, error:'missing key' });
+      // Build vars from query params minus key / compose flags
+      const vars = { ...req.query };
+      delete vars.key; delete vars.compose; delete vars.raw;
+      // Debate trace schema support when previewing debate.system
+      if (key === 'debate.system') {
+        const trace = String(req.query.trace || '').toLowerCase();
+        const useTrace = trace === '1' || trace === 'true' || trace === 'yes';
+        vars.trace_schema = useTrace
+          ? '\\"trace\\": [{\\"role\\":\\"Pro|Con|Critic|Judge\\",\\"content\\":string}]'
+          : '\\"trace\\": []';
+      }
+      const compose = String(req.query.compose || '1');
+      const raw = String(req.query.raw || '0');
+      let text;
+      if (raw === '1' || compose === '0') text = getBasePrompt(key, vars);
+      else text = composeSystem(key, vars);
+      if (!text) return res.status(404).json({ ok:false, error:'unknown key or empty prompt' });
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.send(text);
+    } catch (e) {
+      res.status(500).json({ ok:false, error: String(e && e.message || e) });
+    }
+  });

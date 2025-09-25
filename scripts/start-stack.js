@@ -9,14 +9,16 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { modelRoots, manifestRoots, blobPathForDigest, resolvePython } from '../gateway/config/paths.js';
+import { getConfig } from '../gateway/config/index.js';
 
 const ROOT = process.cwd();
 const BIN_SERVER = process.env.LLAMACPP_BIN || path.join(ROOT, 'llama.cpp/build/bin/llama-server');
 const BIN_GGUF = process.env.LLAMA_GGUF_BIN || path.join(ROOT, 'llama.cpp/build/bin/llama-gguf');
-const LLAMACPP_PORT = Number(process.env.LLAMACPP_PORT || 8088);
-const OLLAMA_PROXY_PORT = Number(process.env.OLLAMA_PROXY_PORT || 11434);
-const GATEWAY_PORT = Number(process.env.GATEWAY_PORT || 3123);
-const SEARXNG_BASE = process.env.SEARXNG_BASE || 'http://127.0.0.1:8888';
+const CFG = getConfig();
+const LLAMACPP_PORT = CFG.ports.llamacpp;
+const OLLAMA_PROXY_PORT = CFG.ports.ollamaProxy;
+const GATEWAY_PORT = CFG.ports.gateway;
+const SEARXNG_BASE = CFG.searxng.base;
 const SEARXNG_PORT = Number(process.env.SEARXNG_PORT || 8888);
 const SEARXNG_HOST = process.env.SEARXNG_HOST || '127.0.0.1';
 
@@ -26,11 +28,6 @@ function exists(p) { try { fs.statSync(p); return true; } catch { return false; 
 function isFile(p) { try { return fs.statSync(p).isFile(); } catch { return false; } }
 function isDir(p) { try { return fs.statSync(p).isDirectory(); } catch { return false; } }
 
-function resolvePython() {
-  const explicit = process.env.GATEWAY_PYTHON || process.env.PYTHON;
-  if (explicit && exists(explicit)) return explicit;
-  return resolvePython();
-}
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -164,9 +161,9 @@ function pickModelFromManifests() {
     }
   }
   // Favorites first (user preference): abliterated qwen 8b, then unsloth variants if present
-  const favorites = [
+  const favorites = Array.isArray(CFG.models.favorites) && CFG.models.favorites.length ? CFG.models.favorites : [
     'jaahas/qwen3-abliterated/8b',
-    'library/qwen3/8b',
+    'library/qwen3/8b'
   ];
   for (const fav of favorites) {
     const hit = entries.find(e => e.ref.includes(fav));

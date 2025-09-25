@@ -59,10 +59,12 @@ gateway/tools/curated/cache/*.jsonl
 gateway/tools/curated/cache/*.json
 *llama.cpp/
 # Keep most scripts ignored by default, but allow committed orchestrators/config
-# /scripts/
-# !/scripts/start-stack.js
-# !/scripts/docker-compose.searxng.yml
-# !/scripts/searxng.settings.yml
-# !/scripts/resolve-models.js
+/scripts/
+!/scripts/start-stack.js
+!/scripts/docker-compose.searxng.yml
+!/scripts/searxng.settings.yml
+!/scripts/resolve-models.js
+!/scripts/preview-prompt.mjs
+gateway/config/local.json
 /.continue
 /documents/*.txt

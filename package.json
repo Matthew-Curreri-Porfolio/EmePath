@@ -28,7 +28,9 @@
     "stack:check": "node scripts/start-stack.js --check",
     "ci": "npm run stack:check && vitest run -c vitest.config.ts",
     "searx:compose:up": "docker compose -f scripts/docker-compose.searxng.yml up -d || docker-compose -f scripts/docker-compose.searxng.yml up -d",
-    "searx:compose:down": "docker compose -f scripts/docker-compose.searxng.yml down || docker-compose -f scripts/docker-compose.searxng.yml down"
+    "searx:compose:down": "docker compose -f scripts/docker-compose.searxng.yml down || docker-compose -f scripts/docker-compose.searxng.yml down",
+    "models:resolve": "node scripts/resolve-models.js",
+    "prompts:preview": "node scripts/preview-prompt.mjs --"
   },
   "devDependencies": {
     "vitest": "^3.2.4"
