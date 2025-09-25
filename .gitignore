@@ -59,3 +59,4 @@ gateway/tools/curated/cache/*.jsonl
 gateway/tools/curated/cache/*.json
 *llama.cpp/
 /scripts/
+.continue
