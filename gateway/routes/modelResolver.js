@@ -6,28 +6,16 @@
 
 import fs from "fs";
 import path from "path";
+import { modelRoots } from "../config/paths.js";
 
-const DEFAULT_ROOTS = [
-  "/home/hmagent/.ollama/models",
-  path.join(process.env.HOME || "", ".ollama/models"),
-  "/root/.ollama/models",
-  "/var/snap/ollama/common/models",
-  "/var/lib/ollama/models",
-  "/usr/local/var/ollama/models",
-  "/opt/homebrew/var/ollama/models",
-  "/usr/share/ollama/.ollama/models",
-];
+// Dynamic model roots
 
 const exists = (p) => { try { fs.statSync(p); return true; } catch { return false; } };
 const isFile = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } };
 const isDir  = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
 const uniq   = (a) => Array.from(new Set(a));
 
-function discoverRoots() {
-  const env = (process.env.MODEL_SEARCH_ROOTS || "")
-    .split(":").map(s => s.trim()).filter(Boolean);
-  return uniq([...DEFAULT_ROOTS, ...env].filter(exists));
-}
+function discoverRoots() { return modelRoots(); }
 
 function readFirst4(p) {
   const fd = fs.openSync(p, "r");

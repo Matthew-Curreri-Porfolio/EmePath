@@ -2,12 +2,13 @@
 // Configuration via env (sensible defaults):
 //   LLAMA_MODEL_PATH, LLAMACPP_PORT=8088, OLLAMA_PROXY_PORT=11434, GATEWAY_PORT=3123
 //   WHOOGLE_BASE=http://127.0.0.1:5010
-//   GATEWAY_PYTHON=/home/hmagent/miniconda3/envs/gateway/bin/python (preferred)
+//   GATEWAY_PYTHON=$HOME/miniconda3/envs/gateway/bin/python (preferred) or via PATH/conda
 //   MODEL_SEARCH_ROOTS=colon:separated:paths (to help find .gguf)
 
 import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { modelRoots, manifestRoots, blobPathForDigest, resolvePython } from '../gateway/config/paths.js';
 
 const ROOT = process.cwd();
 const BIN_SERVER = process.env.LLAMACPP_BIN || path.join(ROOT, 'llama.cpp/build/bin/llama-server');
@@ -28,9 +29,7 @@ function isDir(p) { try { return fs.statSync(p).isDirectory(); } catch { return 
 function resolvePython() {
   const explicit = process.env.GATEWAY_PYTHON || process.env.PYTHON;
   if (explicit && exists(explicit)) return explicit;
-  const conda = '/home/hmagent/miniconda3/envs/gateway/bin/python';//TODO: MAKE DYNAMIC grep all in project
-  if (exists(conda)) return conda;
-  return 'python3';
+  return resolvePython();
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -64,19 +63,7 @@ function* walk(dir, depth = 3) {
 }
 
 function discoverModelCandidates() {
-  const roots = [
-    path.join(process.env.HOME || '', '.ollama/models'),
-    '/home/hmagent/.ollama/models',
-    '/root/.ollama/models',
-    '/var/snap/ollama/common/models',
-    '/var/lib/ollama/models',
-    '/usr/local/var/ollama/models',
-    '/opt/homebrew/var/ollama/models',
-    '/usr/share/ollama/.ollama/models',
-    path.join(ROOT, 'models'),
-  ];
-  const extra = (process.env.MODEL_SEARCH_ROOTS || '').split(':').filter(Boolean);
-  const dirs = Array.from(new Set([...roots, ...extra])).filter(isDir);
+  const dirs = modelRoots();
   const found = [];
   for (const r of dirs) {
     const blobs = path.join(r, 'blobs');
@@ -123,16 +110,7 @@ async function isGenerativeModel(p) {
   }
 }
 
-function discoverManifestRoots() {
-  const roots = [
-    path.join(process.env.HOME || '', '.ollama/models/manifests'),
-    '/home/hmagent/.ollama/models/manifests',
-    '/root/.ollama/models/manifests',
-    '/var/snap/ollama/common/models/manifests',
-    '/var/lib/ollama/models/manifests',
-  ];
-  return Array.from(new Set(roots.filter(isDir)));
-}
+function discoverManifestRoots() { return manifestRoots(); }
 
 function parseManifestFile(p) {
   try {
@@ -171,17 +149,7 @@ function scoreRefForChat(ref) {
   return score;
 }
 
-function blobPathForDigest(digest) {
-  const candidates = [
-    path.join(process.env.HOME || '', `.ollama/models/blobs/sha256-${digest}`),
-    `/home/hmagent/.ollama/models/blobs/sha256-${digest}`,
-    `/root/.ollama/models/blobs/sha256-${digest}`,
-    `/var/snap/ollama/common/models/blobs/sha256-${digest}`,
-    `/var/lib/ollama/models/blobs/sha256-${digest}`,
-  ];
-  for (const c of candidates) if (isFile(c)) return c;
-  return '';
-}
+// use imported blobPathForDigest
 
 function pickModelFromManifests() {
   const entries = listAllManifestEntries();

@@ -2,6 +2,7 @@
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
+import { manifestRoots, blobPathForDigest } from '../gateway/config/paths.js';
 
 function isDir(p){ try { return fs.statSync(p).isDirectory(); } catch { return false; } }
 function isFile(p){ try { return fs.statSync(p).isFile(); } catch { return false; } }
@@ -19,16 +20,7 @@ function* walk(dir, depth = 6) {
   }
 }
 
-function discoverManifestRoots() {
-  const roots = [
-    path.join(process.env.HOME || '', '.ollama/models/manifests'),
-    '/home/hmagent/.ollama/models/manifests',
-    '/root/.ollama/models/manifests',
-    '/var/snap/ollama/common/models/manifests',
-    '/var/lib/ollama/models/manifests',
-  ];
-  return Array.from(new Set(roots.filter(isDir)));
-}
+function discoverManifestRoots() { return manifestRoots(); }
 
 function parseManifestFile(p) {
   try {
@@ -54,17 +46,7 @@ function listAllManifestEntries() {
   return out;
 }
 
-function blobPathForDigest(d) {
-  const cands = [
-    path.join(process.env.HOME || '', `.ollama/models/blobs/sha256-${d}`),
-    `/home/hmagent/.ollama/models/blobs/sha256-${d}`,
-    `/root/.ollama/models/blobs/sha256-${d}`,
-    `/var/snap/ollama/common/models/blobs/sha256-${d}`,
-    `/var/lib/ollama/models/blobs/sha256-${d}`,
-  ];
-  for (const c of cands) if (isFile(c)) return c;
-  return '';
-}
+// blobPathForDigest imported
 
 function scoreRefForChat(ref) {
   const s = ref.toLowerCase();
@@ -111,4 +93,3 @@ async function main() {
 }
 
 main();
-

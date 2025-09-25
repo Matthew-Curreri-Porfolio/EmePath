@@ -3,6 +3,7 @@ import { spawn } from 'child_process';
 import { getPrompt } from '../prompts/index.js';
 import fs from 'fs';
 import path from 'path';
+import { modelRoots } from '../config/paths.js';
 
 const CLI = process.env.LLAMACPP_CLI || 'llama-cli';
 const DEFAULT_MAX_TOKENS = Number(process.env.DEFAULT_MAX_TOKENS || 1024);
@@ -14,27 +15,14 @@ const okJson = (t) => { try { return JSON.parse(t); } catch { return t; } };
 function getServer() { return process.env.LLAMACPP_SERVER || ''; }
 
 /* ---------- Local model discovery (mirrors resolver) ---------- */
-const DEFAULT_ROOTS = [
-  '/home/hmagent/.ollama/models',
-  path.join(process.env.HOME || '', '.ollama/models'),
-  '/root/.ollama/models',
-  '/var/snap/ollama/common/models',
-  '/var/lib/ollama/models',
-  '/usr/local/var/ollama/models',
-  '/opt/homebrew/var/ollama/models',
-  '/usr/share/ollama/.ollama/models',
-];
+// Model roots discovered dynamically (HOME + known system paths + env MODEL_SEARCH_ROOTS)
 
 const uniq = (a) => Array.from(new Set(a));
 const exists = (p) => { try { fs.statSync(p); return true; } catch { return false; } };
 const isFile = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } };
 const isDir  = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
 
-function discoverRoots() {
-  const env = (process.env.MODEL_SEARCH_ROOTS || '')
-    .split(':').map(s => s.trim()).filter(Boolean);
-  return uniq([...DEFAULT_ROOTS, ...env].filter(exists));
-}
+function discoverRoots() { return modelRoots(); }
 
 function readFirst4(p) {
   const fd = fs.openSync(p, 'r');

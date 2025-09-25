@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import fs from 'fs';
+import { resolvePython } from '../../gateway/config/paths.js';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
@@ -7,15 +8,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const scriptPath = path.resolve(__dirname, 'llama_stub.py');
-
-function resolvePython() {
-  // Priority: explicit override -> conda gateway env -> PYTHON -> python3
-  const explicit = process.env.GATEWAY_PYTHON || process.env.PYTHON;
-  if (explicit && fs.existsSync(explicit)) return explicit;
-  const condaPy = '/home/hmagent/miniconda3/envs/gateway/bin/python';
-  try { if (fs.existsSync(condaPy)) return condaPy; } catch {}
-  return 'python3';
-}
 const PY_BIN = resolvePython();
 
 const child = spawn(PY_BIN, [scriptPath], {
