@@ -77,6 +77,46 @@ curl "http://127.0.0.1:3123/prompts/preview?key=plan.system&envOs=linux"
 - `POST /plan` — safe, verifiable runbook planner
 - `GET /prompts/preview?key=...` — renders composed prompt text
 
+## Streaming Feedback
+
+### Chat Streaming (`POST /chat/stream`)
+
+In addition to the model’s streaming chunks (SSE lines with `data: { ... }`), the gateway emits lightweight status events to help clients provide responsive UI while waiting for first tokens or handling errors:
+
+- `data: {"event":"status","state":"connected"}` — emitted once after the connection is established
+- `data: {"event":"status","state":"waiting"}` — heartbeat every ~1s until the first token arrives
+- If a stream error occurs after headers are sent:
+  - `data: {"event":"status","state":"error","reason":"..."}` is emitted before closing
+
+Clients should ignore unknown `event=status` payloads if not needed; they are additive and won’t break existing consumers.
+
+### Warmup with Feedback (`POST /warmup/stream`)
+
+For readiness checks that may take a few seconds, use the SSE endpoint which reports progress:
+
+- `data: {"event":"status","state":"starting"}`
+- `data: {"event":"status","state":"waiting","ms":<elapsed_ms>}` heartbeats every ~1s
+- On success: `data: {"event":"status","state":"ok","via":"server|cli"}`
+- On failure: `data: {"event":"status","state":"error","error":"..."}`
+
+Example curl (note: curl doesn’t render SSE prettily, but shows the lines):
+
+```
+curl -N -H 'accept: text/event-stream' -H 'content-type: application/json' \
+  -X POST http://127.0.0.1:3123/warmup/stream -d '{}'
+```
+
+## CLI Demo: Stream Viewer
+
+A tiny Node script is included to view SSE status and chunks from either endpoint:
+
+```
+node scripts/sse_demo.js --url http://127.0.0.1:3123/chat/stream --data '{"messages":[{"role":"user","content":"hello"}]}'
+node scripts/sse_demo.js --url http://127.0.0.1:3123/warmup/stream --data '{}'
+```
+
+It prints each SSE line as it arrives and exits when the stream ends.
+
 ## Model Selection
 
 The gateway resolves models using Ollama manifests and prefers instruction/chat variants. You can override with:

@@ -25,6 +25,14 @@ curl -s http://127.0.0.1:3123/health
 curl -s http://127.0.0.1:8088/v1/models
 ```
 
+Streaming feedback docs (chat and warmup): see `gateway/README.md` under “Streaming Feedback”.
+You can also try the included SSE viewer script:
+
+```
+node scripts/sse_demo.js --url http://127.0.0.1:3123/chat/stream --data '{"messages":[{"role":"user","content":"hello"}]}'
+node scripts/sse_demo.js --url http://127.0.0.1:3123/warmup/stream --data '{}'
+```
+
 ### Configuration
 
 Configuration is merged from:
@@ -67,4 +75,3 @@ curl "http://127.0.0.1:3123/prompts/preview?key=plan.system&envOs=linux"
 ### CI
 
 GitHub Actions workflow runs `npm ci`, a lightweight stack check, and `vitest` tests. The check mode skips heavy llama checks on hosted runners.
-

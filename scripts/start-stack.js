@@ -331,6 +331,48 @@ async function startGateway(llamaBase) {
   return { child, base };
 }
 
+async function streamWarmupWithFeedback(gwBase, { timeoutMs = 10000 } = {}) {
+  const url = `${gwBase.replace(/\/$/, '')}/warmup/stream`;
+  const controller = new AbortController();
+  const to = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'accept': 'text/event-stream' },
+      body: '{}',
+      signal: controller.signal,
+    });
+    if (!res.body) { log({ event: 'warmup_stream_no_body' }); return; }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let remaining = 30; // cap lines to avoid noisy logs
+    while (remaining-- > 0) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      const text = dec.decode(value);
+      for (const line of text.split(/\r?\n/)) {
+        if (!line.startsWith('data:')) continue;
+        const raw = line.slice(5).trim();
+        try {
+          const msg = JSON.parse(raw);
+          if (msg && msg.event === 'status') {
+            log({ event: 'warmup_status', state: msg.state, via: msg.via, ms: msg.ms, error: msg.error });
+            if (msg.state === 'ok' || msg.state === 'error') {
+              try { await reader.cancel(); } catch {}
+              return;
+            }
+          }
+        } catch {
+          // ignore parse errors
+        }
+      }
+    }
+  } catch (e) {
+    log({ event: 'warmup_stream_error', error: String(e && e.message || e) });
+  } finally { clearTimeout(to); }
+}
+
 async function main() {
   try {
     // Optional preflight-only mode: --check
@@ -371,6 +413,8 @@ async function main() {
     log({ event: 'gateway_health', ok: healthR?.ok === true });
 
     log({ event: 'stack_ready', llamaBase, ollamaBase, gwBase, searxng: SEARXNG_BASE });
+    // Kick a warmup with streaming feedback in the background (best-effort)
+    streamWarmupWithFeedback(gwBase, { timeoutMs: 15000 }).catch(() => {});
 
     // Keep alive until SIGINT/SIGTERM
     const shutdown = () => {

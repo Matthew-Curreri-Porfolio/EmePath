@@ -16,6 +16,7 @@ import { completeUseCase } from "../usecases/complete.js";
 import { chatUseCase } from "../usecases/chat.js";
 import { chatStreamUseCase } from "../usecases/chatStream.js";
 import { warmupUseCase } from "../usecases/warmup.js";
+import { warmupStreamUseCase } from "../usecases/warmupStream.js";
 import { scanUseCase } from "../usecases/scan.js";
 import { queryUseCase } from "../usecases/query.js";
 import { loginUseCase, requireAuth } from "../usecases/auth.js";
@@ -113,6 +114,9 @@ export default function registerRoutes(app, deps) {
 
   app.post("/warmup", validate(WarmupSchema), async (req, res) => {
     await warmupUseCase(req, res, deps);
+  });
+  app.post("/warmup/stream", async (req, res) => {
+    await warmupStreamUseCase(req, res, deps);
   });
   // Model resolver (mount once at startup)
   registerModelResolver(app, deps);

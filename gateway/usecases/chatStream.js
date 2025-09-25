@@ -70,6 +70,11 @@ export async function chatStreamUseCase(req, res, deps) {
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
+    // Initial status event and heartbeat while waiting for first token
+    let sawData = false;
+    const status = (obj) => { try { res.write(`data: ${JSON.stringify({ id, event: 'status', ...obj })}\n\n`); res.flush?.(); } catch {} };
+    status({ state: 'connected' });
+    const hb = setInterval(() => { if (!sawData) status({ state: 'waiting' }); }, 1000);
     const body = r.body;
     // Handle both Web Streams (undici/WHATWG) and Node Readable streams robustly
     if (body && typeof body.getReader === 'function') {
@@ -80,6 +85,7 @@ export async function chatStreamUseCase(req, res, deps) {
           const { value, done } = await reader.read();
           if (done) break;
           if (value) {
+            sawData = true;
             const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
             res.write(chunk);
             res.flush?.();
@@ -91,9 +97,10 @@ export async function chatStreamUseCase(req, res, deps) {
         const reason = err?.message || 'stream error';
         log({ id, event: "error", where: "stream_read", type: "chat_stream", reason, latencyMs: latencyErr });
         if (!res.headersSent) res.status(502).json({ error: "stream error" });
-        else try { res.end(); } catch {}
+        else { try { status({ state: 'error', reason }); res.end(); } catch {} }
       } finally {
         try { await reader.cancel(); } catch {}
+        clearInterval(hb);
       }
       return;
     }
@@ -107,15 +114,15 @@ export async function chatStreamUseCase(req, res, deps) {
       return;
     }
     upstreamStream = stream;
-    stream.on("data", chunk => { res.write(chunk); res.flush?.(); });
+    stream.on("data", chunk => { sawData = true; res.write(chunk); res.flush?.(); });
     stream.on("error", err => {
       const latencyErr = Math.round(performance.now() - t0);
       const reason = err?.message || 'stream error';
       log({ id, event: "error", where: "stream", type: "chat_stream", reason, latencyMs: latencyErr });
       if (!res.headersSent) res.status(502).json({ error: "stream error" });
-      else try { res.end(); } catch {}
+      else { try { status({ state: 'error', reason }); res.end(); } catch {} }
     });
-    stream.on("end", () => { res.end(); });
+    stream.on("end", () => { clearInterval(hb); res.end(); });
   } catch (e) {
     const latencyAll = Math.round(performance.now() - t0);
     const isAbort = e?.name === "AbortError" || /timeout/i.test(String(e?.message || e));
