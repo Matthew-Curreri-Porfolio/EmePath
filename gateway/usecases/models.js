@@ -1,6 +1,7 @@
 // gateway/usecases/models.js
-import { listModels } from '../lib/llm.js';
+import { listModelsOllama } from '../lib/llm.js';
 
 export async function getModels() {
-  return await listModels();
+  // Return models in Ollama-compatible format (objects with metadata)
+  return await listModelsOllama();
 }

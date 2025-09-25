@@ -6,7 +6,7 @@ Path: gateway/gatewayCLI.py
 
 Env (overrides):
   GATEWAY_BASE       default http://127.0.0.1:3123
-  LLAMACPP_SERVER    default http://127.0.0.1:11434
+  LLAMACPP_SERVER    default http://127.0.0.1:11435
   GW_TOKEN_PATH      default ~/.gateway_cli/token.json
   START_SCRIPT       default ./scripts/start-llama-and-gateway.sh
   MODEL_ARG          optional; forwarded to start script
@@ -42,7 +42,7 @@ from urllib import request, error as urlerror
 
 # -------- defaults --------
 DEF_GATEWAY = os.environ.get("GATEWAY_BASE", "http://127.0.0.1:3123").rstrip("/")
-DEF_LLAMA   = os.environ.get("LLAMACPP_SERVER", "http://127.0.0.1:11434").rstrip("/")
+DEF_LLAMA   = os.environ.get("LLAMACPP_SERVER", "http://127.0.0.1:11435").rstrip("/")
 TOK_PATH    = pathlib.Path(os.environ.get("GW_TOKEN_PATH", str(pathlib.Path.home()/".gateway_cli"/"token.json")))
 START_SCRIPT= os.environ.get("START_SCRIPT", "./scripts/start-llama-and-gateway.sh")
 TIMEOUT_S   = float(os.environ.get("GW_TIMEOUT", "30"))
@@ -106,7 +106,7 @@ def _env_for_start(args):
         if v: env[k] = str(v)
     # also mirror LLAMACPP_SERVER if you want gateway to see it
     if "LLAMACPP_SERVER" not in env:
-        env["LLAMACPP_SERVER"] = f"http://{env.get('LHOST','127.0.0.1')}:{env.get('LLAMACPP_PORT', env.get('LPORT','11434'))}"
+        env["LLAMACPP_SERVER"] = f"http://{env.get('LHOST','127.0.0.1')}:{env.get('LLAMACPP_PORT', env.get('LPORT','11435'))}"
     return env
 
 def _kill_port(port:int):
@@ -209,7 +209,7 @@ def cmd_local_start(a):
 
 def cmd_local_stop(a):
     # best-effort: kill ports provided or defaults
-    lport = int(a.lport or os.environ.get("LLAMACPP_PORT") or os.environ.get("LPORT") or 11434)
+    lport = int(a.lport or os.environ.get("LLAMACPP_PORT") or os.environ.get("LPORT") or 11435)
     gport = int(a.gateway_port or os.environ.get("GATEWAY_PORT") or 3123)
     print(f"[*] killing listeners on :{lport} and :{gport}")
     _kill_port(lport); _kill_port(gport)

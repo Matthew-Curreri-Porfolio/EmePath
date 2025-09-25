@@ -13,9 +13,10 @@ from typing import Optional, Dict, Any, Iterable, List
 
 import requests
 from fastapi import FastAPI, Response, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, PlainTextResponse
 
 BASE = (os.environ.get("LLAMACPP_SERVER") or "http://127.0.0.1:8080").rstrip("/")
+GATEWAY_BASE = (os.environ.get("GATEWAY_SERVER") or "http://127.0.0.1:3123").rstrip("/")
 TIMEOUT = float(os.environ.get("UPSTREAM_TIMEOUT", "300"))
 APP_VERSION = os.environ.get("OLLAMA_PROXY_VERSION", "0.0.1-proxy")
 LOCAL_MODELS_ROOT = os.path.expanduser(os.environ.get("OLLAMA_LOCAL_MODELS", "~/models")).rstrip("/")
@@ -64,6 +65,9 @@ def _gc_loaded():
         _LOADED.pop(k, None)
 app = FastAPI(title="llamacpp-ollama-proxy")
 
+@app.get("/", include_in_schema=False)
+def root():
+    return PlainTextResponse("Ollama is running")
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -248,6 +252,26 @@ def api_tags():
 def api_ps():
     _gc_loaded()
     return {"models": list(_LOADED.values())}
+
+@app.get("/v1/models")
+def list_models():
+    try:
+        r = requests.get(f"{GATEWAY_BASE}/models", timeout=TIMEOUT)
+        r.raise_for_status()
+        payload = r.json()  # expect: { models: [...] }
+        models = payload.get("models") or []
+        # Normalize to OpenAI shape expected by your client: { data: [{id: ...}] }
+        data = []
+        for m in models:
+            if isinstance(m, dict):
+                mid = m.get("name") or m.get("id") or m.get("model") or "default"
+            else:
+                # m could be a path or a name; prefer basename without extension
+                mid = os.path.splitext(os.path.basename(str(m)))[0] or str(m)
+            data.append({"id": str(mid)})
+        return {"object": "list", "data": data}
+    except Exception as e:
+        return oops(502, f"gateway fetch error: {e}")
 
 @app.post("/api/show")
 def api_show(payload: Dict[str, Any]):
@@ -465,5 +489,5 @@ def api_refresh():
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT") or 11434)
+    port = int(os.environ.get("PORT") or 11435)
     uvicorn.run(app, host="0.0.0.0", port=port)

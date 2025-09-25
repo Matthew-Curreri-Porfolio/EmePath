@@ -144,7 +144,7 @@ Logs: npm run logs:gateway
 
 Runtime Config (env)
 
-OLLAMA (default http://127.0.0.1:11434)
+OLLAMA (default http://127.0.0.1:11435)
 
 MODEL (gateway default model)
 

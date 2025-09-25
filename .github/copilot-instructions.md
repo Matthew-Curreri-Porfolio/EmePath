@@ -236,7 +236,7 @@ Key runtime pieces you should know about:
 ## Runtime config & important env vars
 
 - Gateway defaults:
-  - `OLLAMA` — upstream model host (default `http://127.0.0.1:11434`)
+  - `OLLAMA` — upstream model host (default `http://127.0.0.1:11435`)
   - `MODEL` — LLM model id used by gateway (see server.js default)
   - `MOCK=1` — bypass real LLM calls and return deterministic mocks (useful for offline dev)
   - `GATEWAY_TIMEOUT_MS` — default upstream timeout
@@ -287,12 +287,12 @@ Ollama (or another upstream model host) if not using MOCK=1
 # sanity checks
 node -v
 code --version
-curl -s http://127.0.0.1:11434/api/tags | jq .
+curl -s http://127.0.0.1:11435/api/tags | jq .
 
 Ports & env matrix (at a glance)
 Component	Default	Override env
 Gateway	:3123	PORT, GATEWAY_TIMEOUT_MS, VERBOSE
-Upstream	:11434	OLLAMA (e.g., http://127.0.0.1:11434)
+Upstream	:11435	OLLAMA (e.g., http://127.0.0.1:11435)
 Model	qwen2.5-coder:7b-instruct	MODEL
 
 In the VS Code devhost, the extension points to the gateway via setting codexz.gatewayUrl or process env OSS_CODEX_GATEWAY used by your extension:devhost script.

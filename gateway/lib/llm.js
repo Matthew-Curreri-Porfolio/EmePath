@@ -3,7 +3,7 @@ import { spawn } from 'child_process';
 import { getPrompt } from '../prompts/index.js';
 import fs from 'fs';
 import path from 'path';
-import { modelRoots } from '../config/paths.js';
+import { modelRoots, manifestRoots, blobPathForDigest } from '../config/paths.js';
 
 const CLI = process.env.LLAMACPP_CLI || 'llama-cli';
 const DEFAULT_MAX_TOKENS = Number(process.env.DEFAULT_MAX_TOKENS || 1024);
@@ -37,7 +37,9 @@ function isGGUF(p) {
   try { return readFirst4(p) === 'GGUF'; } catch { return false; }
 }
 
-function* walk(dir, depth = 4) {
+
+
+function* walk(dir, depth = 2) {
   const q = [{ d: dir, k: 0 }];
   while (q.length) {
     const { d, k } = q.shift();
@@ -51,28 +53,199 @@ function* walk(dir, depth = 4) {
   }
 }
 
+// 1) Manifests-first: collect model names from manifests directory
+function listFromManifests() {
+  const names = [];
+  for (const root of modelRoots()) {
+    const manifests = path.join(root, 'manifests');
+    if (!isDir(manifests)) continue;
+
+    for (const p of walk(manifests, /*depth*/1)) {
+      if (!p.toLowerCase().endsWith('.json') || !isFile(p)) continue;
+
+      // Try to infer name from filename first: <namespace>__<model>__<tag>.json or model__tag.json, etc.
+      const base = path.basename(p, '.json');
+      let inferred = base;
+
+      // Then try JSON content (if any has name-ish fields)
+      try {
+        const txt = fs.readFileSync(p, 'utf8');
+        const j = JSON.parse(txt);
+        const cand = j?.model || j?.name || j?.fully_qualified_name || j?.tag || '';
+        if (cand) inferred = String(cand);
+      } catch { /* ignore bad json */ }
+
+      if (inferred) names.push(inferred);
+    }
+  }
+  return uniq(names);
+}
+
+// 2) Fallback: scan blobs/gguf like you already do
 function listAllLocalGGUF() {
   const out = [];
-  for (const r of discoverRoots()) {
-    // scan blobs first (common Ollama storage)
+  for (const r of modelRoots()) {
     const blobs = path.join(r, 'blobs');
     if (isDir(blobs)) {
-      for (const p of walk(blobs, 2)) if (p.toLowerCase().endsWith('.gguf') && isGGUF(p)) out.push(p);
-      // Some installs store SHA-named files directly under blobs without .gguf extension — still GGUF.
-      for (const p of walk(blobs, 1)) if (!p.toLowerCase().endsWith('.gguf') && isGGUF(p)) out.push(p);
+      for (const p of walk(blobs, 2)) out.push(p);
     }
-    // scan root tree for loose .gguf files
-    for (const p of walk(r, 3)) if (p.toLowerCase().endsWith('.gguf') && isGGUF(p)) out.push(p);
+    for (const p of walk(r, 3)) if (p.toLowerCase().endsWith('.gguf')) out.push(p);
   }
-  // de-dupe and sort newest first
-  const uniqPaths = uniq(out.map((p) => path.resolve(p)));
+  // de-dupe and newest first
+  const uniqPaths = uniq(out.map(p => path.resolve(p)));
+  uniqPaths.sort((a, b) => {
+    const ma = fs.statSync(a).mtimeMs, mb = fs.statSync(b).mtimeMs;
+    return mb - ma;
+  });
+  // map to "names" = basename without extension
+  return uniqPaths.map(p => path.basename(p).replace(/\.gguf$/i, ''));
+}
+
+// Exported/used by /models route
+export async function getModels() {
+  const names = listFromManifests();
+  if (names.length) return names;
+
+  // fallback: gguf-derived names
+  return listAllLocalGGUF();
+}
+/* ------------------------------------------------------------- */
+
+// ---------- Ollama-style model listing (detailed) ----------
+
+function extractSha256(text) {
+  if (!text) return '';
+  const m = String(text).match(/sha256[-: ]?([0-9a-f]{64})/i);
+  return m ? m[1].toLowerCase() : '';
+}
+
+function familyFromName(name) {
+  const n = (name || '').toLowerCase();
+  if (/mixtral/.test(n)) return 'mistral';
+  if (/mistral/.test(n)) return 'mistral';
+  if (/llava/.test(n)) return 'llava';
+  if (/vicuna/.test(n)) return 'llama';
+  if (/llama/.test(n)) return 'llama';
+  if (/qwen/.test(n)) return 'qwen';
+  if (/phi/.test(n)) return 'phi';
+  if (/gemma/.test(n)) return 'gemma';
+  if (/yi\b/.test(n)) return 'yi';
+  if (/falcon/.test(n)) return 'falcon';
+  return null;
+}
+
+function parameterSizeFrom(nameOrPath) {
+  const s = String(nameOrPath || '');
+  const m = s.match(/(^|[^a-z0-9])([0-9]{1,3})\s*[bB]([^a-z0-9]|$)/);
+  return m ? `${m[2].toUpperCase()}B` : null;
+}
+
+function quantFromPath(p) {
+  const base = path.basename(String(p || ''));
+  // common quant patterns: Q4_0, Q5_K, Q6_K, IQ4_NL, Q8_0, etc.
+  const m = base.match(/-(IQ?[0-9]+(?:_[A-Z0-9]+)?)\.gguf$/i) || base.match(/-(Q[0-9]+(?:_[A-Z0-9]+)?)\.gguf$/i);
+  return m ? m[1].toUpperCase() : null;
+}
+
+function guessNameFromManifestPath(p) {
+  // fallback if JSON does not provide a name
+  const base = path.basename(p).replace(/\.json$/i, '');
+  return base;
+}
+
+function tryJSON(text) {
+  try { return JSON.parse(text); } catch { return null; }
+}
+
+function collectManifestFiles() {
+  const out = [];
+  for (const root of manifestRoots()) {
+    for (const p of walk(root, /*depth*/6)) if (p.toLowerCase().endsWith('.json')) out.push(p);
+  }
+  return out;
+}
+
+function buildEntry({ name, digest, blobPath, fallbackStat }) {
+  let size = 0; let mtime = new Date();
+  if (blobPath && isFile(blobPath)) {
+    const st = fs.statSync(blobPath);
+    size = st.size; mtime = st.mtime;
+  } else if (fallbackStat) {
+    size = fallbackStat.size; mtime = fallbackStat.mtime;
+  }
+  const quant = quantFromPath(blobPath) || quantFromPath(name) || null;
+  const param = parameterSizeFrom(name) || parameterSizeFrom(blobPath) || null;
+  const details = {
+    format: 'gguf',
+    family: familyFromName(name),
+    families: null,
+    parameter_size: param,
+    quantization_level: quant,
+  };
+  return {
+    name,
+    modified_at: mtime.toISOString(),
+    size,
+    digest: digest || '',
+    details,
+  };
+}
+
+function listFromManifestsDetailed() {
+  const models = new Map(); // name -> entry
+  const files = collectManifestFiles();
+  for (const p of files) {
+    let text = '';
+    try { text = fs.readFileSync(p, 'utf8'); } catch { continue; }
+    const j = tryJSON(text) || {};
+    const fallbackStat = (() => { try { return fs.statSync(p); } catch { return null; } })();
+    let name = j.fully_qualified_name || j.name || j.model || j.tag || guessNameFromManifestPath(p);
+    name = String(name || guessNameFromManifestPath(p));
+    const d1 = j.digest || '';
+    const d = extractSha256(text) || extractSha256(d1);
+    const blob = d ? blobPathForDigest(d) : '';
+    const entry = buildEntry({ name, digest: d, blobPath: blob, fallbackStat });
+    // Prefer entries with real blob size over ones without
+    const prev = models.get(name);
+    if (!prev || (entry.size && !prev.size)) models.set(name, entry);
+  }
+  return Array.from(models.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function listAllLocalGGUFPaths() {
+  const out = [];
+  for (const r of modelRoots()) {
+    const blobs = path.join(r, 'blobs');
+    if (isDir(blobs)) {
+      for (const p of walk(blobs, 2)) if (p.toLowerCase().endsWith('.gguf')) out.push(p);
+    }
+    for (const p of walk(r, 3)) if (p.toLowerCase().endsWith('.gguf')) out.push(p);
+  }
+  const uniqPaths = uniq(out.map(p => path.resolve(p)));
   uniqPaths.sort((a, b) => {
     const ma = fs.statSync(a).mtimeMs, mb = fs.statSync(b).mtimeMs;
     return mb - ma;
   });
   return uniqPaths;
 }
-/* ------------------------------------------------------------- */
+
+export async function listModelsOllama() {
+  // 1) Prefer manifest-derived names + metadata
+  const entries = listFromManifestsDetailed();
+  if (entries.length) return entries;
+
+  // 2) Fallback to GGUF scan when no manifests present
+  const paths = listAllLocalGGUFPaths();
+  const models = [];
+  for (const p of paths) {
+    const st = (() => { try { return fs.statSync(p); } catch { return null; } })();
+    const base = path.basename(p, '.gguf');
+    // try digest from blobs path
+    const dd = extractSha256(p);
+    models.push(buildEntry({ name: base, digest: dd, blobPath: p, fallbackStat: st }));
+  }
+  return models;
+}
 
 async function getModelPath() {
   if (process.env.LLAMACPP_MODEL_PATH) return process.env.LLAMACPP_MODEL_PATH;

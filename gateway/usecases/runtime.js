@@ -81,7 +81,7 @@ export async function startLlamaServerUseCase(req, res) {
     process.env.LHOST ||
     '127.0.0.1';
   const port =
-    Number(body.port || process.env.LLAMACPP_PORT || process.env.LPORT || 11434);
+    Number(body.port || process.env.LLAMACPP_PORT || process.env.LPORT || 11435);
 
   args = upsertArg(args, '--host', String(host));
   args = upsertArg(args, '--port', String(port));

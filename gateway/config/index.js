@@ -39,7 +39,7 @@ export function getConfig() {
   };
   const ports = {
     llamacpp: envPorts.llamacpp || merged.ports?.llamacpp || 8088,
-    ollamaProxy: envPorts.ollamaProxy || merged.ports?.ollamaProxy || 11434,
+    ollamaProxy: envPorts.ollamaProxy || merged.ports?.ollamaProxy || 11435,
     gateway: envPorts.gateway || merged.ports?.gateway || 3123,
   };
 
