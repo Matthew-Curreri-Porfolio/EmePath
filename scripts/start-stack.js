@@ -511,6 +511,19 @@ async function main() {
     log({ event: 'ollama_tags_count', count: Array.isArray(tagsR?.models) ? tagsR.models.length : 0 });
     const tagCount = Array.isArray(tagsR?.models) ? tagsR.models.length : 0;
     startup.push(`proxy tags ${tagCount}`, { level: 'ok' });
+    startup.push('gateway models...', { level: 'info' });
+    try {
+      const modelsJ = await fetch(`${gwBase}/models`).then(r => r.json());
+      const mcount = Array.isArray(modelsJ?.models) ? modelsJ.models.length : 0;
+      startup.push(`gateway models ${mcount}`, { level: 'ok' });
+    } catch { startup.push('gateway models error', { level: 'warn' }); }
+
+    startup.push('gateway chat...', { level: 'info' });
+    try {
+      const gwChat = await fetch(`${gwBase}/chat`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }], maxTokens: 8 }) });
+      startup.push(`gateway chat ${gwChat.status}`, { level: gwChat.ok ? 'ok' : 'warn' });
+    } catch { startup.push('gateway chat error', { level: 'warn' }); }
+
     startup.push('gateway health...', { level: 'info' });
     const healthR = await fetch(`${gwBase}/health`).then(r => r.json()).catch(() => ({}));
     log({ event: 'gateway_health', ok: healthR?.ok === true });
