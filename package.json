@@ -17,7 +17,11 @@
     "py:lint": "ruff check gateway/tools",
     "py:format": "black gateway/tools",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "stub:llama": "node scripts/start-llama-stub.js",
+    "stub:llama:error": "node scripts/start-llama-stub.js --fixture tests/fixtures/llama_stub.error.json",
+    "stub:llama:delay": "node scripts/start-llama-stub.js --fixture tests/fixtures/llama_stub.delay.json",
+    "stub:llama:stream": "node scripts/start-llama-stub.js --fixture tests/fixtures/llama_stub.stream.json"
   },
   "devDependencies": {
     "vitest": "^3.2.4"

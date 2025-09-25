@@ -1,3 +1,4 @@
+import { Readable } from "stream";
 import { GATEWAY_TIMEOUT_MS, MODEL, MOCK, VERBOSE, LOG_BODY, THINK } from "../config.js";
 
 // Stream chat via llama.cpp's OpenAI-compatible API (/v1/chat/completions)
@@ -61,11 +62,21 @@ export async function chatStreamUseCase(req, res, deps) {
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
-    r.body.on("data", chunk => {
+    let stream = r.body;
+    if (stream && typeof stream.on !== 'function' && typeof Readable?.fromWeb === 'function') {
+      try {
+        stream = Readable.fromWeb(stream);
+      } catch {}
+    }
+    if (!stream || typeof stream.on !== 'function') {
+      res.status(502).json({ error: "invalid upstream stream" });
+      return;
+    }
+    stream.on("data", chunk => {
       res.write(chunk);
       res.flush?.();
     });
-    r.body.on("end", () => {
+    stream.on("end", () => {
       res.end();
     });
   } catch (e) {
@@ -77,4 +88,3 @@ export async function chatStreamUseCase(req, res, deps) {
     clearTimeout(to);
   }
 }
-
