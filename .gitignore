@@ -75,3 +75,4 @@ nohup.out
 .stack.pids.json
 /gateway/models/base/qwen3-1.7b-base
 /gateway/models/base/qwen3-4b-base
+gpt-oss-20b-bf16
