@@ -30,7 +30,9 @@ export async function warmupStreamUseCase(req, res, deps) {
 
   const onClose = () => {
     done = true;
-    try { clearInterval(hb); } catch {}
+    try {
+      clearInterval(hb);
+    } catch {}
   };
   res.on('close', onClose);
 
@@ -41,12 +43,18 @@ export async function warmupStreamUseCase(req, res, deps) {
     if (result && result.ok) {
       send({ event: 'status', state: 'ok', via: result.via || 'unknown' });
     } else {
-      send({ event: 'status', state: 'error', error: String(result && result.error || 'unknown') });
+      send({
+        event: 'status',
+        state: 'error',
+        error: String((result && result.error) || 'unknown'),
+      });
     }
     res.end();
   } catch (e) {
-    const reason = e?.name === 'AbortError' ? 'timeout' : (e?.message || String(e));
-    if (typeof log === 'function') log({ id, event: 'error', where: 'warmup', reason });
+    const reason =
+      e?.name === 'AbortError' ? 'timeout' : e?.message || String(e);
+    if (typeof log === 'function')
+      log({ id, event: 'error', where: 'warmup', reason });
     done = true;
     clearInterval(hb);
     send({ event: 'status', state: 'error', error: reason });
@@ -57,4 +65,3 @@ export async function warmupStreamUseCase(req, res, deps) {
 }
 
 export default { warmupStreamUseCase };
-

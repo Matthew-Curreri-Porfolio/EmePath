@@ -5,7 +5,13 @@ import http from 'http';
 import request from 'supertest';
 
 import registerRoutes from '../routes/index.js';
-import { log, getTimeoutMs, escapeRe, scanDirectory, makeSnippets } from '../utils.js';
+import {
+  log,
+  getTimeoutMs,
+  escapeRe,
+  scanDirectory,
+  makeSnippets,
+} from '../utils.js';
 import { OLLAMA, MODEL, MOCK, VERBOSE, LOG_BODY } from '../config.js';
 import { getIndex, setIndex } from '../state.js';
 import { getModels } from '../usecases/models.js';

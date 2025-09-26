@@ -10,7 +10,9 @@ class TTLCache {
     this.max = max;
     this.map = new Map(); // key -> { value, exp }
   }
-  _now() { return Date.now(); }
+  _now() {
+    return Date.now();
+  }
   _purgeExpired() {
     const now = this._now();
     for (const [k, v] of this.map) {
@@ -42,13 +44,21 @@ class TTLCache {
     return ent.value;
   }
   set(key, value, ttlMs) {
-    const exp = this._now() + (typeof ttlMs === 'number' && ttlMs > 0 ? ttlMs : this.ttlMs);
+    const exp =
+      this._now() +
+      (typeof ttlMs === 'number' && ttlMs > 0 ? ttlMs : this.ttlMs);
     this.map.set(key, { value, exp });
     this._evictIfNeeded();
   }
-  has(key) { return typeof this.get(key) !== 'undefined'; }
-  delete(key) { return this.map.delete(key); }
-  clear() { this.map.clear(); }
+  has(key) {
+    return typeof this.get(key) !== 'undefined';
+  }
+  delete(key) {
+    return this.map.delete(key);
+  }
+  clear() {
+    this.map.clear();
+  }
   stats() {
     this._purgeExpired();
     return { size: this.map.size, max: this.max, ttlMs: this.ttlMs };
@@ -77,4 +87,3 @@ export function getCache() {
 }
 
 export default { getCache, stableStringify };
-

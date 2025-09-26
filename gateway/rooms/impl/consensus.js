@@ -10,7 +10,12 @@ export async function consensus(task, ideas, deps = {}) {
     decision: list[0] || task.goal,
     candidates: list,
   };
-  return makeOutcome({ taskId: task.id, status: 'success', artifacts, rationale });
+  return makeOutcome({
+    taskId: task.id,
+    status: 'success',
+    artifacts,
+    rationale,
+  });
 }
 
 export default consensus;

@@ -2,7 +2,8 @@
 // Env: GATEWAY_BASE (e.g., http://localhost:3000), MODEL (optional)
 
 function buildPrompt(text) {
-  return `You are an information extraction system. Read the text and output ONLY a JSON object with this schema (no prose):\n\n{
+  return (
+    `You are an information extraction system. Read the text and output ONLY a JSON object with this schema (no prose):\n\n{
   "schema": "dimensional-markup@v1",
   "title": string,
   "lang": "en",
@@ -23,13 +24,25 @@ function buildPrompt(text) {
     { "id": string, "sentence": string, "phrases": string[], "numbers": string[], "dates": string[] }
   ],
   "training": { "qa": [ { "prompt": string, "completion": any } ] }
-}\n\nGuidelines:\n- Be faithful to the text.\n- Extract section headings if present (markdown or obvious titles).\n- Citations: include all URLs and DOIs you find.\n- Keep JSON compact and valid.\n\nTEXT:\n\n` + text;
+}\n\nGuidelines:\n- Be faithful to the text.\n- Extract section headings if present (markdown or obvious titles).\n- Citations: include all URLs and DOIs you find.\n- Keep JSON compact and valid.\n\nTEXT:\n\n` +
+    text
+  );
 }
 
-export async function extractDimensionalMarkupLLM(text, { base = process.env.GATEWAY_BASE || 'http://localhost:3000', model = process.env.MODEL, temperature = 0.2 } = {}) {
+export async function extractDimensionalMarkupLLM(
+  text,
+  {
+    base = process.env.GATEWAY_BASE || 'http://localhost:3000',
+    model = process.env.MODEL,
+    temperature = 0.2,
+  } = {}
+) {
   const body = {
     messages: [
-      { role: 'system', content: 'You convert text into structured JSON facts.' },
+      {
+        role: 'system',
+        content: 'You convert text into structured JSON facts.',
+      },
       { role: 'user', content: buildPrompt(text) },
     ],
     temperature,
@@ -61,7 +74,8 @@ export async function extractDimensionalMarkupLLM(text, { base = process.env.GAT
   }
   const json = await res.json();
   // Expect either { ok, messages:[{content}] } or a direct content
-  const content = json?.messages?.[json.messages.length - 1]?.content || json?.content || '';
+  const content =
+    json?.messages?.[json.messages.length - 1]?.content || json?.content || '';
   let parsed;
   try {
     parsed = JSON.parse(content);

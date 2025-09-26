@@ -1,6 +1,6 @@
-import * as vscode from "vscode";
-import * as fs from "fs";
-import { TextDecoder } from "util";
+import * as vscode from 'vscode';
+import * as fs from 'fs';
+import { TextDecoder } from 'util';
 
 /*───────────────────────────────────────────────────────────────────────────*\
 |  Globals / config                                                          |
@@ -8,17 +8,17 @@ import { TextDecoder } from "util";
 
 let status: vscode.StatusBarItem;
 let inlineEnabled = true;
-let gatewayUrl = "http://127.0.0.1:3123";
+let gatewayUrl = 'http://127.0.0.1:3123';
 let disposableProvider: vscode.Disposable | null = null;
 
-const cfgKey = "codexz";
-const out: vscode.OutputChannel = vscode.window.createOutputChannel("Codexz");
+const cfgKey = 'codexz';
+const out: vscode.OutputChannel = vscode.window.createOutputChannel('Codexz');
 
 function log(event: string, data?: unknown) {
   const line =
-    "[codexz] " +
+    '[codexz] ' +
     event +
-    (data !== undefined ? " " + JSON.stringify(data) : "");
+    (data !== undefined ? ' ' + JSON.stringify(data) : '');
   console.log(line);
   out.appendLine(line);
 }
@@ -28,9 +28,9 @@ function log(event: string, data?: unknown) {
 \*───────────────────────────────────────────────────────────────────────────*/
 
 type WebviewToHostMessage =
-  | { type: "scan" }
-  | { type: "terminal" }
-  | { type: "runShell"; code: string }
+  | { type: 'scan' }
+  | { type: 'terminal' }
+  | { type: 'runShell'; code: string }
   | { type: string; [k: string]: unknown };
 
 /*───────────────────────────────────────────────────────────────────────────*\
@@ -65,12 +65,12 @@ async function complete(
     suffix: suf,
     path: doc.uri.fsPath,
     cursor: { line: pos.line, ch: pos.character },
-    budgetMs: 350
+    budgetMs: 350,
   };
   const r = await fetch(`${gatewayUrl}/complete`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
   if (!r.ok) throw new Error(`gateway ${r.status}`);
   return r.text();
@@ -83,14 +83,14 @@ async function complete(
 function applyConfig(): void {
   const cfg = vscode.workspace.getConfiguration(cfgKey);
 
-  const gw = cfg.get("gatewayUrl");
-  if (typeof gw === "string" && gw.length > 0) gatewayUrl = gw;
+  const gw = cfg.get('gatewayUrl');
+  if (typeof gw === 'string' && gw.length > 0) gatewayUrl = gw;
 
-  const ie = cfg.get("inlineEnabled");
-  inlineEnabled = typeof ie === "boolean" ? ie : true;
+  const ie = cfg.get('inlineEnabled');
+  inlineEnabled = typeof ie === 'boolean' ? ie : true;
 
   if (status) status.tooltip = `Gateway: ${gatewayUrl}`;
-  log("config", { gatewayUrl, inlineEnabled });
+  log('config', { gatewayUrl, inlineEnabled });
 
   if (disposableProvider) {
     disposableProvider.dispose();
@@ -105,24 +105,24 @@ function applyConfig(): void {
       ): Promise<
         vscode.InlineCompletionList | vscode.InlineCompletionItem[] | undefined
       > {
-        log("inline/provider_fired", {
+        log('inline/provider_fired', {
           file: doc.uri.fsPath,
           line: pos.line,
-          ch: pos.character
+          ch: pos.character,
         });
         try {
           const text = await complete(doc, pos);
           if (!text) return;
           return { items: [{ insertText: text }] };
         } catch (e: any) {
-          log("inline/error", { message: e?.message || String(e) });
-          if (status) status.text = "Codexz: FAILED";
+          log('inline/error', { message: e?.message || String(e) });
+          if (status) status.text = 'Codexz: FAILED';
           return;
         }
-      }
+      },
     };
     disposableProvider = vscode.languages.registerInlineCompletionItemProvider(
-      { pattern: "**/*" },
+      { pattern: '**/*' },
       provider
     );
   }
@@ -134,8 +134,8 @@ function applyConfig(): void {
 
 function nonce(): string {
   const chars =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let s = "";
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let s = '';
   for (let i = 0; i < 32; i++)
     s += chars.charAt(Math.floor(Math.random() * chars.length));
   return s;
@@ -153,12 +153,12 @@ async function renderWebviewHtml(
     `script-src 'nonce-${n}'; ` +
     `connect-src http: https:;`;
 
-  const htmlUri = vscode.Uri.joinPath(ctx.extensionUri, "media", "chat.html");
+  const htmlUri = vscode.Uri.joinPath(ctx.extensionUri, 'media', 'chat.html');
   const fsPath = htmlUri.fsPath;
 
   try {
-    const html = fs.readFileSync(fsPath, "utf8");
-    log("webview/html_loaded_fs", { path: fsPath });
+    const html = fs.readFileSync(fsPath, 'utf8');
+    log('webview/html_loaded_fs', { path: fsPath });
     return html
       .replace(/{{CSP}}/g, csp)
       .replace(/{{NONCE}}/g, n)
@@ -166,8 +166,8 @@ async function renderWebviewHtml(
   } catch (e1: any) {
     try {
       const bytes = await vscode.workspace.fs.readFile(htmlUri);
-      const html = new TextDecoder("utf-8").decode(bytes);
-      log("webview/html_loaded_vscodefs", { path: fsPath });
+      const html = new TextDecoder('utf-8').decode(bytes);
+      log('webview/html_loaded_vscodefs', { path: fsPath });
       return html
         .replace(/{{CSP}}/g, csp)
         .replace(/{{NONCE}}/g, n)
@@ -175,7 +175,7 @@ async function renderWebviewHtml(
     } catch (e2: any) {
       const msg1 = e1?.message || String(e1);
       const msg2 = e2?.message || String(e2);
-      log("webview/html_failed", { fsPath, msg1, msg2 });
+      log('webview/html_failed', { fsPath, msg1, msg2 });
 
       return `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
@@ -197,13 +197,13 @@ async function renderWebviewHtml(
 
 function openChatPanel(ctx: vscode.ExtensionContext): void {
   const panel = vscode.window.createWebviewPanel(
-    "codexzChat",
-    "Codexz Chat",
+    'codexzChat',
+    'Codexz Chat',
     vscode.ViewColumn.Beside,
     {
       enableScripts: true,
       retainContextWhenHidden: true,
-      localResourceRoots: [vscode.Uri.joinPath(ctx.extensionUri, "media")]
+      localResourceRoots: [vscode.Uri.joinPath(ctx.extensionUri, 'media')],
     }
   );
 
@@ -211,60 +211,60 @@ function openChatPanel(ctx: vscode.ExtensionContext): void {
     panel.webview.html = html;
   });
 
-  panel.onDidDispose(() => log("webview/dispose"));
+  panel.onDidDispose(() => log('webview/dispose'));
 
   panel.webview.onDidReceiveMessage(async (raw: WebviewToHostMessage) => {
-    const msg = raw ?? ({ type: "" } as WebviewToHostMessage);
-    log("webview/msg_in", { type: msg.type });
+    const msg = raw ?? ({ type: '' } as WebviewToHostMessage);
+    log('webview/msg_in', { type: msg.type });
 
     switch (msg.type) {
-      case "scan": {
+      case 'scan': {
         const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         if (!root) {
           panel.webview.postMessage({
-            type: "scanResult",
+            type: 'scanResult',
             ok: false,
-            error: "No workspace open"
+            error: 'No workspace open',
           });
           break;
         }
         try {
-          log("scan/start", { root });
+          log('scan/start', { root });
           const r = await fetch(`${gatewayUrl}/scan`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ root, maxFileSize: 262144 })
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ root, maxFileSize: 262144 }),
           });
-          const data: any = await r.json().catch(() => ({} as any));
-          log("scan/done", { ok: r.ok, count: data?.count, root: data?.root });
+          const data: any = await r.json().catch(() => ({}) as any);
+          log('scan/done', { ok: r.ok, count: data?.count, root: data?.root });
           panel.webview.postMessage({
-            type: "scanResult",
+            type: 'scanResult',
             ok: r.ok,
             data,
-            error: r.ok ? undefined : (data?.error || "scan failed")
+            error: r.ok ? undefined : data?.error || 'scan failed',
           });
         } catch (e: any) {
           const err = e?.message || String(e);
-          log("scan/error", { err });
+          log('scan/error', { err });
           panel.webview.postMessage({
-            type: "scanResult",
+            type: 'scanResult',
             ok: false,
-            error: err
+            error: err,
           });
         }
         break;
       }
 
-      case "terminal": {
-        log("terminal/open");
+      case 'terminal': {
+        log('terminal/open');
         ensureTerminal().show();
         break;
       }
 
-      case "runShell": {
+      case 'runShell': {
         const code = (msg as any).code;
-        if (typeof code !== "string") {
-          log("runShell/invalid", { reason: "code not string" });
+        if (typeof code !== 'string') {
+          log('runShell/invalid', { reason: 'code not string' });
           break;
         }
 
@@ -274,13 +274,13 @@ function openChatPanel(ctx: vscode.ExtensionContext): void {
         // Start in workspace root if available
         const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         if (cwd) {
-          log("runShell/cd", { cwd });
+          log('runShell/cd', { cwd });
           term.sendText(`cd ${JSON.stringify(cwd)} || pwd`, true);
         }
 
         // Normalize and run line-by-line for reliability
-        const lines = code.replace(/\r/g, "").split("\n");
-        log("runShell/dispatch", { lines: lines.length });
+        const lines = code.replace(/\r/g, '').split('\n');
+        log('runShell/dispatch', { lines: lines.length });
         for (const rawLine of lines) {
           const line = rawLine.trimEnd();
           if (!line) continue;
@@ -290,7 +290,7 @@ function openChatPanel(ctx: vscode.ExtensionContext): void {
       }
 
       default: {
-        log("webview/msg_unknown", { type: (msg as any)?.type });
+        log('webview/msg_unknown', { type: (msg as any)?.type });
         break;
       }
     }
@@ -306,8 +306,8 @@ let codexzTerminal: vscode.Terminal | null = null;
 function ensureTerminal(): vscode.Terminal {
   if (codexzTerminal && !codexzTerminal.exitStatus) return codexzTerminal;
   const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  codexzTerminal = vscode.window.createTerminal({ name: "Codexz", cwd });
-  codexzTerminal.processId?.then((pid) => log("terminal/new", { pid, cwd }));
+  codexzTerminal = vscode.window.createTerminal({ name: 'Codexz', cwd });
+  codexzTerminal.processId?.then((pid) => log('terminal/new', { pid, cwd }));
   return codexzTerminal;
 }
 
@@ -317,19 +317,19 @@ function ensureTerminal(): vscode.Terminal {
 
 export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   out.show(true);
-  log("activate");
+  log('activate');
 
   status = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Right,
     1000
   );
-  status.text = "Codexz: …";
-  status.command = "codexz.openChat";
+  status.text = 'Codexz: …';
+  status.command = 'codexz.openChat';
   status.show();
   ctx.subscriptions.push(status);
 
   applyConfig();
-  status.text = (await health()) ? "Codexz: Connected" : "Codexz: FAILED";
+  status.text = (await health()) ? 'Codexz: Connected' : 'Codexz: FAILED';
 
   ctx.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
@@ -338,17 +338,17 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   );
 
   ctx.subscriptions.push(
-    vscode.commands.registerCommand("codexz.ping", async () => {
-      status.text = "Codexz: …";
-      status.text = (await health()) ? "Codexz: Connected" : "Codexz: FAILED";
+    vscode.commands.registerCommand('codexz.ping', async () => {
+      status.text = 'Codexz: …';
+      status.text = (await health()) ? 'Codexz: Connected' : 'Codexz: FAILED';
     })
   );
 
   ctx.subscriptions.push(
-    vscode.commands.registerCommand("codexz.test", async () => {
+    vscode.commands.registerCommand('codexz.test', async () => {
       const ed = vscode.window.activeTextEditor;
       if (!ed) {
-        vscode.window.showWarningMessage("Open a file.");
+        vscode.window.showWarningMessage('Open a file.');
         return;
       }
       try {
@@ -357,18 +357,16 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
           `Completion: ${outText.slice(0, 120)}…`
         );
       } catch (e: any) {
-        vscode.window.showErrorMessage(
-          `Completion failed: ${e?.message || e}`
-        );
+        vscode.window.showErrorMessage(`Completion failed: ${e?.message || e}`);
       }
     })
   );
 
   ctx.subscriptions.push(
-    vscode.commands.registerCommand("codexz.toggleInline", async () => {
+    vscode.commands.registerCommand('codexz.toggleInline', async () => {
       const cfg = vscode.workspace.getConfiguration(cfgKey);
       await cfg.update(
-        "inlineEnabled",
+        'inlineEnabled',
         !inlineEnabled,
         vscode.ConfigurationTarget.Global
       );
@@ -376,14 +374,12 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   );
 
   ctx.subscriptions.push(
-    vscode.commands.registerCommand("codexz.openChat", () =>
-      openChatPanel(ctx)
-    )
+    vscode.commands.registerCommand('codexz.openChat', () => openChatPanel(ctx))
   );
 
-  log("ready");
+  log('ready');
 }
 
 export function deactivate(): void {
-  log("deactivate");
+  log('deactivate');
 }

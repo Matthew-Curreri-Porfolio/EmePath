@@ -1,7 +1,5 @@
 {
   "completion_delay": 1.5,
   "chat_delay": 1.5,
-  "models": [
-    { "id": "slow-model" }
-  ]
+  "models": [{ "id": "slow-model" }]
 }

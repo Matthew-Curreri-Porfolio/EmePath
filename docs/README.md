@@ -61,22 +61,26 @@ Memory is the single source of truth for the orchestration layer; encoders and t
 ## Quickstart (developer)
 
 Prereqs
+
 - Node.js (modern)
 - Python 3 (for RAX1 codec bridge; optional if using JSON)
 - SQLite (default DB backend) or configured DB
 - Optional: GPU + CUDA for heavy experiments
 
 Example: run a curated ingest
+
 1. export CURATED_MODE=1
 2. export CURATED_CACHE=/absolute/path/docs.jsonl (optional)
 3. node gateway/tools/curated/ingest/run_ingest.mjs --pages "List,Of,Wiki,Pages" --mdn --limit 50
 
 Example: dispatch a rooms task (agentic flow)
+
 - POST /rooms/dispatch
   body: { "goal": "Investigate optimizer variants on CIFAR-10" }
 - The dispatcher will use brainstorm → plan → run experiments and record everything to memory.
 
 Example: re-encode memory for a new codec
+
 - Use the db_manager agent: call encodeAllMemories({ reencode: true }) or run the provided agentic route to update `working_tokens` after changing/adding encoders.
 
 ## Development recommendations

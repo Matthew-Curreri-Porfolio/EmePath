@@ -8,23 +8,36 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-function toUint8Array(str) { return new TextEncoder().encode(str); }
-function fromUint8Array(bytes) { return new TextDecoder().decode(bytes); }
+function toUint8Array(str) {
+  return new TextEncoder().encode(str);
+}
+function fromUint8Array(bytes) {
+  return new TextDecoder().decode(bytes);
+}
 
 function runPython(args, stdinStr) {
   return new Promise((resolve, reject) => {
     const scriptPath = path.resolve(__dirname, '../../tools/rax1_codec.py');
     const pyCmd = resolvePython();
-    const child = spawn(pyCmd, [scriptPath, ...args], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(pyCmd, [scriptPath, ...args], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
     let out = '';
     let err = '';
-    child.stdout.on('data', (d) => { out += d.toString(); });
-    child.stderr.on('data', (d) => { err += d.toString(); });
+    child.stdout.on('data', (d) => {
+      out += d.toString();
+    });
+    child.stderr.on('data', (d) => {
+      err += d.toString();
+    });
     child.on('error', reject);
     child.on('close', (code) => {
       if (code === 0) return resolve(out);
       const e = new Error(`rax1 python exited ${code}: ${err || out}`);
-      e.stdout = out; e.stderr = err; e.code = code; reject(e);
+      e.stdout = out;
+      e.stderr = err;
+      e.code = code;
+      reject(e);
     });
     if (stdinStr) child.stdin.write(stdinStr);
     child.stdin.end();
@@ -51,7 +64,10 @@ export async function encode(state) {
   } catch {
     // Fallback: JSON UTF-8 of state
     const json = JSON.stringify(state ?? {});
-    return { bytes: toUint8Array(json), meta: { version: 1, format: 'json-utf8-stub' } };
+    return {
+      bytes: toUint8Array(json),
+      meta: { version: 1, format: 'json-utf8-stub' },
+    };
   }
 }
 
@@ -64,7 +80,11 @@ export async function decode(bytes, meta) {
     // noop; fallback to JSON below
   }
   if (!bytes) return {};
-  try { return JSON.parse(fromUint8Array(bytes)); } catch { return {}; }
+  try {
+    return JSON.parse(fromUint8Array(bytes));
+  } catch {
+    return {};
+  }
 }
 
 export default { encode, decode };

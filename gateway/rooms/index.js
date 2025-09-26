@@ -14,11 +14,33 @@ export function defaultDeps(overrides = {}) {
     llm: overrides.llm, // optional adapter
     search: overrides.search, // optional adapter
     clock: { now: () => new Date().toISOString() },
-    memory: overrides.memory || { getWorking: async () => ({}), setWorking: async () => {} },
-    models: overrides.models || { spawn: async () => ({}), dispose: async () => {} },
+    memory: overrides.memory || {
+      getWorking: async () => ({}),
+      setWorking: async () => {},
+    },
+    models: overrides.models || {
+      spawn: async () => ({}),
+      dispose: async () => {},
+    },
     testers: overrides.testers || { quickHypothesisTest: null },
   };
 }
 
-export { Protocols, Dispatcher, decideRooms, runRooms, runTask, createWatchdog };
-export default { Protocols, Dispatcher, decideRooms, runRooms, runTask, rooms, defaultDeps, createWatchdog };
+export {
+  Protocols,
+  Dispatcher,
+  decideRooms,
+  runRooms,
+  runTask,
+  createWatchdog,
+};
+export default {
+  Protocols,
+  Dispatcher,
+  decideRooms,
+  runRooms,
+  runTask,
+  rooms,
+  defaultDeps,
+  createWatchdog,
+};

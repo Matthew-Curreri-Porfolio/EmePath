@@ -4,21 +4,21 @@ This repo hosts the local inference gateway, prompt system, and supporting tools
 
 ### Quick Start
 
-1) Install Node 20 and Docker (optional for SearXNG).
+1. Install Node 20 and Docker (optional for SearXNG).
 
-2) Install deps:
+2. Install deps:
 
 ```
 npm ci
 ```
 
-3) Start the local stack (llama.cpp server, Ollama‑compatible proxy, gateway; reuses running services):
+3. Start the local stack (llama.cpp server, Ollama‑compatible proxy, gateway; reuses running services):
 
 ```
 npm start
 ```
 
-4) Health checks:
+4. Health checks:
 
 ```
 curl -s http://127.0.0.1:3123/health

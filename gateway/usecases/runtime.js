@@ -42,7 +42,10 @@ export async function startLlamaServerUseCase(req, res) {
       : getMachineProfile();
 
   if (!prof?.recommend?.server) {
-    return res.status(400).json({ ok: false, error: 'no hardware profile; run /optimize/hw/run first' });
+    return res.status(400).json({
+      ok: false,
+      error: 'no hardware profile; run /optimize/hw/run first',
+    });
   }
 
   const cmd = prof.recommend.server.cmd;
@@ -56,11 +59,16 @@ export async function startLlamaServerUseCase(req, res) {
     (typeof body.arg === 'string' && body.arg) ||
     (typeof body.model === 'string' && body.model) ||
     (typeof body.modelArg === 'string' && body.modelArg) ||
-    (process.env.MODEL_ARG || '') ||
+    process.env.MODEL_ARG ||
+    '' ||
     extractArg(args, '-m');
 
   if (!reqRef) {
-    return res.status(400).json({ ok: false, error: 'missing model arg (body.arg/model/modelArg or env.MODEL_ARG or profile -m)' });
+    return res.status(400).json({
+      ok: false,
+      error:
+        'missing model arg (body.arg/model/modelArg or env.MODEL_ARG or profile -m)',
+    });
   }
 
   let resolvedPath;
@@ -69,19 +77,20 @@ export async function startLlamaServerUseCase(req, res) {
     resolvedPath = r?.path;
     if (!resolvedPath) throw new Error('resolver returned no path');
   } catch (e) {
-    return res.status(400).json({ ok: false, error: `model resolve failed: ${e && e.message || e}` });
+    return res.status(400).json({
+      ok: false,
+      error: `model resolve failed: ${(e && e.message) || e}`,
+    });
   }
 
   // Ensure -m points to the resolved GGUF
   args = upsertArg(args, '-m', resolvedPath);
 
   // Host/port: prefer explicit envs, else keep profile args
-  const host =
-    body.host ||
-    process.env.LHOST ||
-    '127.0.0.1';
-  const port =
-    Number(body.port || process.env.LLAMACPP_PORT || process.env.LPORT || 11435);
+  const host = body.host || process.env.LHOST || '127.0.0.1';
+  const port = Number(
+    body.port || process.env.LLAMACPP_PORT || process.env.LPORT || 11435
+  );
 
   args = upsertArg(args, '--host', String(host));
   args = upsertArg(args, '--port', String(port));
@@ -101,7 +110,9 @@ export async function startLlamaServerUseCase(req, res) {
     }
     process.stdout.write(`[llama-server] ${s}`);
   });
-  serverProc.stderr.on('data', (d) => process.stderr.write(`[llama-server] ${d}`));
+  serverProc.stderr.on('data', (d) =>
+    process.stderr.write(`[llama-server] ${d}`)
+  );
   serverProc.on('close', (code) => {
     serverProc = null;
     console.log(`[llama-server] exited ${code}`);
@@ -115,7 +126,7 @@ export async function startLlamaServerUseCase(req, res) {
     scope,
     resolvedModelPath: resolvedPath,
     host,
-    port
+    port,
   });
 }
 

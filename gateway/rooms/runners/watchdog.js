@@ -24,7 +24,9 @@ export function createWatchdog({ timeoutMs = 15000 } = {}) {
       if (finished) return;
       try {
         // Migrate working memory to a fresh model and direct a conclusion
-        const working = deps.memory?.getWorking ? await deps.memory.getWorking(task.id) : {};
+        const working = deps.memory?.getWorking
+          ? await deps.memory.getWorking(task.id)
+          : {};
         const model = await deps.models?.spawn?.(modelHint || 'fast');
         const directive = `You are taking over mid-task. Knowledge snapshot: ${JSON.stringify(working).slice(0, 3000)}. Produce a decisive conclusion and a minimal hypothesis test plan now.`;
         const summary = await deps.llm?.runWith?.(model, directive);
@@ -32,20 +34,32 @@ export function createWatchdog({ timeoutMs = 15000 } = {}) {
         const fallbackOutcome = makeOutcome({
           taskId: task.id,
           status: 'success',
-          rationale: 'Primary model stalled. Reassigned with memory shift and forced conclusion.',
-          artifacts: { takeover_summary: summary || 'no-llm', from_watchdog: true },
+          rationale:
+            'Primary model stalled. Reassigned with memory shift and forced conclusion.',
+          artifacts: {
+            takeover_summary: summary || 'no-llm',
+            from_watchdog: true,
+          },
         });
         // Attempt a quick hypothesis test if provided
         if (deps.testers?.quickHypothesisTest) {
-          const test = await deps.testers.quickHypothesisTest(task, fallbackOutcome.artifacts);
+          const test = await deps.testers.quickHypothesisTest(
+            task,
+            fallbackOutcome.artifacts
+          );
           fallbackOutcome.artifacts.hypothesis_test = test;
-          if (test && test.passed === false) fallbackOutcome.status = 'needs_info';
+          if (test && test.passed === false)
+            fallbackOutcome.status = 'needs_info';
         }
         inflight.delete(task.id);
         return fallbackOutcome;
       } catch (e) {
         inflight.delete(task.id);
-        return makeOutcome({ taskId: task.id, status: 'failed', rationale: `Watchdog error: ${e.message}` });
+        return makeOutcome({
+          taskId: task.id,
+          status: 'failed',
+          rationale: `Watchdog error: ${e.message}`,
+        });
       }
     }, timeoutMs);
 

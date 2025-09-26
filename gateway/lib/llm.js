@@ -3,26 +3,59 @@ import { spawn } from 'child_process';
 import { getPrompt } from '../prompts/index.js';
 import fs from 'fs';
 import path from 'path';
-import { modelRoots, manifestRoots, blobPathForDigest } from '../config/paths.js';
+import {
+  modelRoots,
+  manifestRoots,
+  blobPathForDigest,
+} from '../config/paths.js';
 
 const CLI = process.env.LLAMACPP_CLI || 'llama-cli';
 const DEFAULT_MAX_TOKENS = Number(process.env.DEFAULT_MAX_TOKENS || 1024);
 
 const trimSlash = (s) => String(s || '').replace(/\/$/, '');
 const toStr = (x) => String(x ?? '');
-const okJson = (t) => { try { return JSON.parse(t); } catch { return t; } };
+const okJson = (t) => {
+  try {
+    return JSON.parse(t);
+  } catch {
+    return t;
+  }
+};
 
-function getServer() { return process.env.LLAMACPP_SERVER || ''; }
+function getServer() {
+  return process.env.LLAMACPP_SERVER || '';
+}
 
 /* ---------- Local model discovery (mirrors resolver) ---------- */
 // Model roots discovered dynamically (HOME + known system paths + env MODEL_SEARCH_ROOTS)
 
 const uniq = (a) => Array.from(new Set(a));
-const exists = (p) => { try { fs.statSync(p); return true; } catch { return false; } };
-const isFile = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } };
-const isDir  = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
+const exists = (p) => {
+  try {
+    fs.statSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+};
+const isFile = (p) => {
+  try {
+    return fs.statSync(p).isFile();
+  } catch {
+    return false;
+  }
+};
+const isDir = (p) => {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+};
 
-function discoverRoots() { return modelRoots(); }
+function discoverRoots() {
+  return modelRoots();
+}
 
 function readFirst4(p) {
   const fd = fs.openSync(p, 'r');
@@ -30,21 +63,29 @@ function readFirst4(p) {
     const b = Buffer.alloc(4);
     fs.readSync(fd, b, 0, 4, 0);
     return b.toString('utf8');
-  } finally { fs.closeSync(fd); }
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 function isGGUF(p) {
   if (!isFile(p)) return false;
-  try { return readFirst4(p) === 'GGUF'; } catch { return false; }
+  try {
+    return readFirst4(p) === 'GGUF';
+  } catch {
+    return false;
+  }
 }
-
-
 
 function* walk(dir, depth = 2) {
   const q = [{ d: dir, k: 0 }];
   while (q.length) {
     const { d, k } = q.shift();
     let ents;
-    try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { continue; }
+    try {
+      ents = fs.readdirSync(d, { withFileTypes: true });
+    } catch {
+      continue;
+    }
     for (const e of ents) {
       const p = path.join(d, e.name);
       if (e.isDirectory() && k < depth) q.push({ d: p, k: k + 1 });
@@ -60,7 +101,7 @@ function listFromManifests() {
     const manifests = path.join(root, 'manifests');
     if (!isDir(manifests)) continue;
 
-    for (const p of walk(manifests, /*depth*/1)) {
+    for (const p of walk(manifests, /*depth*/ 1)) {
       if (!p.toLowerCase().endsWith('.json') || !isFile(p)) continue;
 
       // Try to infer name from filename first: <namespace>__<model>__<tag>.json or model__tag.json, etc.
@@ -71,9 +112,12 @@ function listFromManifests() {
       try {
         const txt = fs.readFileSync(p, 'utf8');
         const j = JSON.parse(txt);
-        const cand = j?.model || j?.name || j?.fully_qualified_name || j?.tag || '';
+        const cand =
+          j?.model || j?.name || j?.fully_qualified_name || j?.tag || '';
         if (cand) inferred = String(cand);
-      } catch { /* ignore bad json */ }
+      } catch {
+        /* ignore bad json */
+      }
 
       if (inferred) names.push(inferred);
     }
@@ -89,16 +133,18 @@ function listAllLocalGGUF() {
     if (isDir(blobs)) {
       for (const p of walk(blobs, 2)) out.push(p);
     }
-    for (const p of walk(r, 3)) if (p.toLowerCase().endsWith('.gguf')) out.push(p);
+    for (const p of walk(r, 3))
+      if (p.toLowerCase().endsWith('.gguf')) out.push(p);
   }
   // de-dupe and newest first
-  const uniqPaths = uniq(out.map(p => path.resolve(p)));
+  const uniqPaths = uniq(out.map((p) => path.resolve(p)));
   uniqPaths.sort((a, b) => {
-    const ma = fs.statSync(a).mtimeMs, mb = fs.statSync(b).mtimeMs;
+    const ma = fs.statSync(a).mtimeMs,
+      mb = fs.statSync(b).mtimeMs;
     return mb - ma;
   });
   // map to "names" = basename without extension
-  return uniqPaths.map(p => path.basename(p).replace(/\.gguf$/i, ''));
+  return uniqPaths.map((p) => path.basename(p).replace(/\.gguf$/i, ''));
 }
 
 // Exported/used by /models route
@@ -143,7 +189,9 @@ function parameterSizeFrom(nameOrPath) {
 function quantFromPath(p) {
   const base = path.basename(String(p || ''));
   // common quant patterns: Q4_0, Q5_K, Q6_K, IQ4_NL, Q8_0, etc.
-  const m = base.match(/-(IQ?[0-9]+(?:_[A-Z0-9]+)?)\.gguf$/i) || base.match(/-(Q[0-9]+(?:_[A-Z0-9]+)?)\.gguf$/i);
+  const m =
+    base.match(/-(IQ?[0-9]+(?:_[A-Z0-9]+)?)\.gguf$/i) ||
+    base.match(/-(Q[0-9]+(?:_[A-Z0-9]+)?)\.gguf$/i);
   return m ? m[1].toUpperCase() : null;
 }
 
@@ -154,13 +202,17 @@ function guessNameFromManifestPath(p) {
 }
 
 function tryJSON(text) {
-  try { return JSON.parse(text); } catch { return null; }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }
 
 function collectManifestFiles() {
   const out = [];
   for (const root of manifestRoots()) {
-    for (const p of walk(root, /*depth*/8)) {
+    for (const p of walk(root, /*depth*/ 8)) {
       // Ollama manifests are regular files without extension
       if (isFile(p)) out.push(p);
     }
@@ -177,7 +229,7 @@ function idFromManifestPath(p) {
     const name = parts[i + 2];
     const tag = parts[i + 3];
     const isLibrary = owner === 'library';
-    return (isLibrary ? `${name}:${tag}` : `${owner}/${name}:${tag}`);
+    return isLibrary ? `${name}:${tag}` : `${owner}/${name}:${tag}`;
   }
   // Fallback to last 3 segments heuristic
   if (parts.length >= 3) {
@@ -185,7 +237,7 @@ function idFromManifestPath(p) {
     const name = parts[parts.length - 2];
     const tag = parts[parts.length - 1];
     const isLibrary = owner === 'library';
-    return (isLibrary ? `${name}:${tag}` : `${owner}/${name}:${tag}`);
+    return isLibrary ? `${name}:${tag}` : `${owner}/${name}:${tag}`;
   }
   return path.basename(p);
 }
@@ -198,39 +250,50 @@ function digestFromManifestText(text) {
   for (const layer of layers) {
     const mt = String(layer?.mediaType || '');
     if (/application\/vnd\.ollama\.image\.model/.test(mt) && layer?.digest) {
-      return String(layer.digest).replace(/^sha256-/, '').replace(/^sha256:/, '');
+      return String(layer.digest)
+        .replace(/^sha256-/, '')
+        .replace(/^sha256:/, '');
     }
   }
   // Fallback to config digest (less accurate for model blob)
   const cfg = j.config?.digest || '';
-  if (cfg) return String(cfg).replace(/^sha256-/, '').replace(/^sha256:/, '');
+  if (cfg)
+    return String(cfg)
+      .replace(/^sha256-/, '')
+      .replace(/^sha256:/, '');
   return '';
 }
 
 function normalizeDigest(digest) {
   if (!digest) return '';
-  return String(digest).replace(/^sha256[-:]/i, '').toLowerCase();
+  return String(digest)
+    .replace(/^sha256[-:]/i, '')
+    .toLowerCase();
 }
 
 function quantFromTag(tag) {
   if (!tag) return null;
-  const m = String(tag).match(/(IQ?[0-9]+(?:_[A-Z0-9]+)*|Q[0-9]+(?:_[A-Z0-9]+)*)/i);
+  const m = String(tag).match(
+    /(IQ?[0-9]+(?:_[A-Z0-9]+)*|Q[0-9]+(?:_[A-Z0-9]+)*)/i
+  );
   return m ? m[1].toUpperCase() : null;
 }
-
 
 function listAllLocalGGUFPaths() {
   const out = [];
   for (const r of modelRoots()) {
     const blobs = path.join(r, 'blobs');
     if (isDir(blobs)) {
-      for (const p of walk(blobs, 2)) if (p.toLowerCase().endsWith('.gguf')) out.push(p);
+      for (const p of walk(blobs, 2))
+        if (p.toLowerCase().endsWith('.gguf')) out.push(p);
     }
-    for (const p of walk(r, 3)) if (p.toLowerCase().endsWith('.gguf')) out.push(p);
+    for (const p of walk(r, 3))
+      if (p.toLowerCase().endsWith('.gguf')) out.push(p);
   }
-  const uniqPaths = uniq(out.map(p => path.resolve(p)));
+  const uniqPaths = uniq(out.map((p) => path.resolve(p)));
   uniqPaths.sort((a, b) => {
-    const ma = fs.statSync(a).mtimeMs, mb = fs.statSync(b).mtimeMs;
+    const ma = fs.statSync(a).mtimeMs,
+      mb = fs.statSync(b).mtimeMs;
     return mb - ma;
   });
   return uniqPaths;
@@ -246,11 +309,23 @@ const MANIFEST_REGISTRY = 'registry.ollama.ai';
 
 function parseManifestMeta(filePath, root) {
   let stat;
-  try { stat = fs.statSync(filePath); } catch { return null; }
+  try {
+    stat = fs.statSync(filePath);
+  } catch {
+    return null;
+  }
   let text;
-  try { text = fs.readFileSync(filePath, 'utf8'); } catch { return null; }
+  try {
+    text = fs.readFileSync(filePath, 'utf8');
+  } catch {
+    return null;
+  }
   let manifest;
-  try { manifest = JSON.parse(text); } catch { return null; }
+  try {
+    manifest = JSON.parse(text);
+  } catch {
+    return null;
+  }
 
   const rel = path.relative(root, filePath);
   const parts = rel.split(path.sep).filter(Boolean);
@@ -264,14 +339,32 @@ function parseManifestMeta(filePath, root) {
   const tag = tagParts.join('/');
   const id = owner === 'library' ? `${name}:${tag}` : `${owner}/${name}:${tag}`;
 
-  const created = Number.isFinite(stat.mtimeMs) ? Math.floor(stat.mtimeMs / 1000) : Math.floor(stat.mtime.getTime() / 1000);
+  const created = Number.isFinite(stat.mtimeMs)
+    ? Math.floor(stat.mtimeMs / 1000)
+    : Math.floor(stat.mtime.getTime() / 1000);
 
   const layers = Array.isArray(manifest.layers) ? manifest.layers : [];
-  const modelLayer = layers.find((layer) => /application\/vnd\.ollama\.image\.model/.test(String(layer?.mediaType || '')));
+  const modelLayer = layers.find((layer) =>
+    /application\/vnd\.ollama\.image\.model/.test(
+      String(layer?.mediaType || '')
+    )
+  );
   if (!modelLayer || !modelLayer.digest) return null;
-  const templateLayer = layers.find((layer) => /application\/vnd\.ollama\.image\.template/.test(String(layer?.mediaType || '')));
-  const licenseLayer = layers.find((layer) => /application\/vnd\.ollama\.image\.license/.test(String(layer?.mediaType || '')));
-  const paramsLayer = layers.find((layer) => /application\/vnd\.ollama\.image\.params/.test(String(layer?.mediaType || '')));
+  const templateLayer = layers.find((layer) =>
+    /application\/vnd\.ollama\.image\.template/.test(
+      String(layer?.mediaType || '')
+    )
+  );
+  const licenseLayer = layers.find((layer) =>
+    /application\/vnd\.ollama\.image\.license/.test(
+      String(layer?.mediaType || '')
+    )
+  );
+  const paramsLayer = layers.find((layer) =>
+    /application\/vnd\.ollama\.image\.params/.test(
+      String(layer?.mediaType || '')
+    )
+  );
 
   const digest = normalizeDigest(modelLayer.digest);
   let size = Number(modelLayer.size) || 0;
@@ -279,15 +372,26 @@ function parseManifestMeta(filePath, root) {
   if (digest) {
     blobPath = blobPathForDigest(digest) || '';
     if ((!size || !Number.isFinite(size)) && blobPath && isFile(blobPath)) {
-      try { size = fs.statSync(blobPath).size; } catch { size = 0; }
+      try {
+        size = fs.statSync(blobPath).size;
+      } catch {
+        size = 0;
+      }
     }
   }
 
   const config = typeof manifest.config === 'object' ? manifest.config : {};
-  const quantization = quantFromTag(tag) || quantFromPath(blobPath || '') || null;
-  const parameterSize = parameterSizeFrom(tag) || parameterSizeFrom(name) || null;
-  const family = config.model_family || familyFromName(name) || familyFromName(id) || null;
-  const families = Array.isArray(config.model_families) ? config.model_families : (config.model_families ? [config.model_families] : null);
+  const quantization =
+    quantFromTag(tag) || quantFromPath(blobPath || '') || null;
+  const parameterSize =
+    parameterSizeFrom(tag) || parameterSizeFrom(name) || null;
+  const family =
+    config.model_family || familyFromName(name) || familyFromName(id) || null;
+  const families = Array.isArray(config.model_families)
+    ? config.model_families
+    : config.model_families
+      ? [config.model_families]
+      : null;
   const format = config.model_format || 'gguf';
   const parentModel = config.parent_model || null;
   const modelType = config.model_type || null;
@@ -334,11 +438,16 @@ export async function listModelsOllama() {
   if (manifests.length) {
     const sorted = manifests
       .slice()
-      .sort((a, b) => (b.created || 0) - (a.created || 0) || a.id.localeCompare(b.id));
+      .sort(
+        (a, b) =>
+          (b.created || 0) - (a.created || 0) || a.id.localeCompare(b.id)
+      );
     return sorted.map((meta) => ({
       name: meta.id,
       model: meta.id,
-      modified_at: meta.created ? new Date(meta.created * 1000).toISOString() : '',
+      modified_at: meta.created
+        ? new Date(meta.created * 1000).toISOString()
+        : '',
       size: meta.size || 0,
       digest: meta.digest ? `sha256:${meta.digest}` : '',
       details: {
@@ -357,14 +466,24 @@ export async function listModelsOllama() {
     try {
       const upstream = await httpGet(`${trimSlash(server)}/v1/models`);
       if (Array.isArray(upstream?.models)) return upstream.models;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   const paths = listAllLocalGGUFPaths();
   return paths.map((p) => {
-    const st = (() => { try { return fs.statSync(p); } catch { return null; } })();
+    const st = (() => {
+      try {
+        return fs.statSync(p);
+      } catch {
+        return null;
+      }
+    })();
     const base = path.basename(p, '.gguf');
-    const modified = st ? new Date((st.mtimeMs || st.mtime.getTime())).toISOString() : '';
+    const modified = st
+      ? new Date(st.mtimeMs || st.mtime.getTime()).toISOString()
+      : '';
     const size = st ? st.size : 0;
     return {
       name: base,
@@ -390,7 +509,10 @@ export async function listModelsOpenAI() {
   if (manifests.length) {
     const sorted = manifests
       .slice()
-      .sort((a, b) => (b.created || 0) - (a.created || 0) || a.id.localeCompare(b.id));
+      .sort(
+        (a, b) =>
+          (b.created || 0) - (a.created || 0) || a.id.localeCompare(b.id)
+      );
     const data = sorted.map((meta) => {
       const entry = {
         id: meta.id,
@@ -409,9 +531,12 @@ export async function listModelsOpenAI() {
       if (meta.format) metaExtra.format = meta.format;
       if (meta.modelType) metaExtra.model_type = meta.modelType;
       if (meta.parentModel) metaExtra.parent_model = meta.parentModel;
-      if (meta.templateDigest) metaExtra.template_digest = `sha256:${meta.templateDigest}`;
-      if (meta.licenseDigest) metaExtra.license_digest = `sha256:${meta.licenseDigest}`;
-      if (meta.paramsDigest) metaExtra.params_digest = `sha256:${meta.paramsDigest}`;
+      if (meta.templateDigest)
+        metaExtra.template_digest = `sha256:${meta.templateDigest}`;
+      if (meta.licenseDigest)
+        metaExtra.license_digest = `sha256:${meta.licenseDigest}`;
+      if (meta.paramsDigest)
+        metaExtra.params_digest = `sha256:${meta.paramsDigest}`;
       if (Object.keys(metaExtra).length) entry.meta = metaExtra;
       return entry;
     });
@@ -423,7 +548,9 @@ export async function listModelsOpenAI() {
     try {
       const upstream = await httpGet(`${trimSlash(server)}/v1/models`);
       if (upstream) return upstream;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   const ggufs = listAllLocalGGUFPaths();
@@ -458,8 +585,12 @@ async function getModelPath() {
   if (process.env.LLAMACPP_MODEL_PATH) return process.env.LLAMACPP_MODEL_PATH;
   try {
     const { resolveModelPath } = await import('../routes/modelResolver.js');
-    if (resolveModelPath.length === 0) return (await resolveModelPath())?.path || '';
-    return (await resolveModelPath({ interactive: false, fallback: false }))?.path || '';
+    if (resolveModelPath.length === 0)
+      return (await resolveModelPath())?.path || '';
+    return (
+      (await resolveModelPath({ interactive: false, fallback: false }))?.path ||
+      ''
+    );
   } catch {
     return '';
   }
@@ -473,12 +604,14 @@ async function httpPost(url, body, timeoutMs = 120000) {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: typeof body === 'string' ? body : JSON.stringify(body),
-      signal: ctrl.signal
+      signal: ctrl.signal,
     });
     const txt = await r.text();
     if (!r.ok) throw new Error(`HTTP ${r.status} ${txt.slice(0, 200)}`);
     return okJson(txt);
-  } finally { clearTimeout(t); }
+  } finally {
+    clearTimeout(t);
+  }
 }
 
 async function httpGet(url, timeoutMs = 120000) {
@@ -489,55 +622,115 @@ async function httpGet(url, timeoutMs = 120000) {
     const txt = await r.text();
     if (!r.ok) throw new Error(`HTTP ${r.status} ${txt.slice(0, 200)}`);
     return okJson(txt);
-  } finally { clearTimeout(t); }
+  } finally {
+    clearTimeout(t);
+  }
 }
 
 function normalizeMessages(messages = []) {
-  return (messages || []).map(m => ({
+  return (messages || []).map((m) => ({
     role: m.role || 'user',
-    content: toStr(m.content)
+    content: toStr(m.content),
   }));
 }
 
-export async function chat({ messages, model, temperature = 0.2, maxTokens = DEFAULT_MAX_TOKENS, timeoutMs = 120000, outputContract, json = false }) {
+export async function chat({
+  messages,
+  model,
+  temperature = 0.2,
+  maxTokens = DEFAULT_MAX_TOKENS,
+  timeoutMs = 120000,
+  outputContract,
+  json = false,
+}) {
   const baseMsgs = normalizeMessages(messages);
-  const msgs = outputContract ? [
-    { role: 'system', content: getPrompt('llm.output_contract') },
-    { role: 'system', content: toStr(outputContract) },
-    ...baseMsgs,
-  ] : baseMsgs;
+  const msgs = outputContract
+    ? [
+        { role: 'system', content: getPrompt('llm.output_contract') },
+        { role: 'system', content: toStr(outputContract) },
+        ...baseMsgs,
+      ]
+    : baseMsgs;
 
   const server = getServer();
   if (server) {
     const url = `${trimSlash(server)}/v1/chat/completions`;
-    const body = { model: model || 'default', messages: msgs, temperature, max_tokens: maxTokens, stream: false };
+    const body = {
+      model: model || 'default',
+      messages: msgs,
+      temperature,
+      max_tokens: maxTokens,
+      stream: false,
+    };
     if (json) body.response_format = { type: 'json_object' };
     const data = await httpPost(url, body, timeoutMs);
     const content = data?.choices?.[0]?.message?.content ?? '';
     return { content, raw: data };
   } else {
     const modelPath = await getModelPath();
-    if (!modelPath) throw new Error('LLAMACPP_MODEL_PATH is required when no LLAMACPP_SERVER is set');
-    const prompt = baseMsgs.map(m => `### ${m.role === 'system' ? 'System' : (m.role === 'assistant' ? 'Assistant' : 'User')}\n${m.content}\n`).join('\n') + `\n### Assistant\n`;
-    const args = ['-m', modelPath, '--prompt', prompt, '--n-predict', String(maxTokens), '--temp', String(temperature)];
+    if (!modelPath)
+      throw new Error(
+        'LLAMACPP_MODEL_PATH is required when no LLAMACPP_SERVER is set'
+      );
+    const prompt =
+      baseMsgs
+        .map(
+          (m) =>
+            `### ${m.role === 'system' ? 'System' : m.role === 'assistant' ? 'Assistant' : 'User'}\n${m.content}\n`
+        )
+        .join('\n') + `\n### Assistant\n`;
+    const args = [
+      '-m',
+      modelPath,
+      '--prompt',
+      prompt,
+      '--n-predict',
+      String(maxTokens),
+      '--temp',
+      String(temperature),
+    ];
     const out = await runCli(CLI, args, timeoutMs);
     return { content: out, raw: { cli: true } };
   }
 }
 
-export async function complete({ prompt, model, temperature = 0.2, maxTokens = DEFAULT_MAX_TOKENS, timeoutMs = 120000 }) {
+export async function complete({
+  prompt,
+  model,
+  temperature = 0.2,
+  maxTokens = DEFAULT_MAX_TOKENS,
+  timeoutMs = 120000,
+}) {
   const p = toStr(prompt);
   const server = getServer();
   if (server) {
     const url = `${trimSlash(server)}/v1/completions`;
-    const body = { model: model || 'default', prompt: p, temperature, max_tokens: maxTokens, stream: false };
+    const body = {
+      model: model || 'default',
+      prompt: p,
+      temperature,
+      max_tokens: maxTokens,
+      stream: false,
+    };
     const data = await httpPost(url, body, timeoutMs);
     const text = data?.choices?.[0]?.text ?? '';
     return { text, raw: data };
   } else {
     const modelPath = await getModelPath();
-    if (!modelPath) throw new Error('LLAMACPP_MODEL_PATH is required when no LLAMACPP_SERVER is set');
-    const args = ['-m', modelPath, '--prompt', p, '--n-predict', String(maxTokens), '--temp', String(temperature)];
+    if (!modelPath)
+      throw new Error(
+        'LLAMACPP_MODEL_PATH is required when no LLAMACPP_SERVER is set'
+      );
+    const args = [
+      '-m',
+      modelPath,
+      '--prompt',
+      p,
+      '--n-predict',
+      String(maxTokens),
+      '--temp',
+      String(temperature),
+    ];
     const out = await runCli(CLI, args, timeoutMs);
     return { text: out, raw: { cli: true } };
   }
@@ -570,16 +763,22 @@ export async function listModels() {
   if (server) {
     try {
       const d = await httpGet(`${trimSlash(server)}/v1/models`);
-      const names = Array.isArray(d?.data) ? d.data.map(x => x.id || x.name || 'default') : [];
+      const names = Array.isArray(d?.data)
+        ? d.data.map((x) => x.id || x.name || 'default')
+        : [];
       if (names.length) return names;
-    } catch { /* fall through to local */ }
+    } catch {
+      /* fall through to local */
+    }
   }
 
   // Try explicit env / resolver first
   try {
     const modelPath = await getModelPath();
     if (modelPath) return [modelPath];
-  } catch { /* ignore and hard fallback */ }
+  } catch {
+    /* ignore and hard fallback */
+  }
 
   // Hard fallback: scan all known roots for GGUF (same method family as resolver)
   const paths = listAllLocalGGUF();
@@ -592,15 +791,22 @@ export async function listModels() {
 function runCli(cmd, args, timeoutMs) {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    let out = ''; let err = '';
+    let out = '';
+    let err = '';
     const timer = setTimeout(() => {
-      try { child.kill('SIGKILL'); } catch {}
+      try {
+        child.kill('SIGKILL');
+      } catch {}
       reject(new Error('llama-cli timeout'));
     }, timeoutMs);
-    child.stdout.on('data', d => { out += d.toString(); });
-    child.stderr.on('data', d => { err += d.toString(); });
+    child.stdout.on('data', (d) => {
+      out += d.toString();
+    });
+    child.stderr.on('data', (d) => {
+      err += d.toString();
+    });
     child.on('error', reject);
-    child.on('close', code => {
+    child.on('close', (code) => {
       clearTimeout(timer);
       if (code === 0) resolve(out.trim());
       else reject(new Error(`llama-cli exit ${code}: ${err.slice(0, 200)}`));

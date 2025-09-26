@@ -162,8 +162,8 @@ engines:
     engine: serpapi
     shortcut: g
     categories: general
-    api_key: "${SERPAPI_API_KEY}"
-    disabled: true   # set to false when key is configured
+    api_key: '${SERPAPI_API_KEY}'
+    disabled: true # set to false when key is configured
     timeout: 4.0
 
   # Bing via SerpAPI
@@ -171,7 +171,7 @@ engines:
     engine: serpapi
     shortcut: b
     categories: general
-    api_key: "${SERPAPI_API_KEY}"
+    api_key: '${SERPAPI_API_KEY}'
     disabled: true
     timeout: 4.0
 
@@ -180,8 +180,8 @@ engines:
     engine: google_custom
     shortcut: gc
     categories: general
-    api_key: "${GOOGLE_API_KEY}"
-    cse_id: "${GOOGLE_CSE_ID}"
+    api_key: '${GOOGLE_API_KEY}'
+    cse_id: '${GOOGLE_CSE_ID}'
     disabled: true
     timeout: 4.0
 ```

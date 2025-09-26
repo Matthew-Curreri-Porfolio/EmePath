@@ -8,7 +8,13 @@ import path from 'path';
 import fs from 'fs/promises';
 
 import registerRoutes from '../routes/index.js';
-import { log, getTimeoutMs, escapeRe, scanDirectory, makeSnippets } from '../utils.js';
+import {
+  log,
+  getTimeoutMs,
+  escapeRe,
+  scanDirectory,
+  makeSnippets,
+} from '../utils.js';
 import { OLLAMA, MODEL, MOCK, VERBOSE, LOG_BODY } from '../config.js';
 import { getIndex, setIndex } from '../state.js';
 import { getModels } from '../usecases/models.js';
@@ -17,7 +23,9 @@ import db from '../db/db.js';
 
 const llamaStub = globalThis.__LLAMA_STUB__;
 if (!llamaStub || !llamaStub.port) {
-  throw new Error('LLAMA stub server must be initialised via tests/setup/start-llama-server.js');
+  throw new Error(
+    'LLAMA stub server must be initialised via tests/setup/start-llama-server.js'
+  );
 }
 
 const stubBase = `http://127.0.0.1:${llamaStub.port}`;
@@ -37,7 +45,10 @@ async function setStubFixture(patch) {
 async function fetchStream(url, payload) {
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'accept': 'text/event-stream' },
+    headers: {
+      'content-type': 'application/json',
+      accept: 'text/event-stream',
+    },
     body: JSON.stringify(payload || {}),
     // Ensure we don't hang forever on network issues
     signal: AbortSignal.timeout(15000),
@@ -54,7 +65,9 @@ async function fetchStream(url, payload) {
         if (text.includes('[DONE]')) break;
       }
     } finally {
-      try { await res.body?.cancel(); } catch {}
+      try {
+        await res.body?.cancel();
+      } catch {}
     }
   }
   return { status: res.status, text };
@@ -119,13 +132,16 @@ describe('Gateway routes integration', () => {
   afterAll(async () => {
     if (server) await new Promise((resolve) => server.close(resolve));
     if (tmpDir) await fs.rm(tmpDir, { recursive: true, force: true });
-    if (typeof originalTimeout === 'undefined') delete process.env.GATEWAY_TIMEOUT_MS;
+    if (typeof originalTimeout === 'undefined')
+      delete process.env.GATEWAY_TIMEOUT_MS;
     else process.env.GATEWAY_TIMEOUT_MS = originalTimeout;
     setIndex({ root: null, files: [] });
   });
 
   it('handles core flows without mocks', async () => {
-    const unauthorizedMemory = await agent.post('/memory/short').send({ content: 'nope' });
+    const unauthorizedMemory = await agent
+      .post('/memory/short')
+      .send({ content: 'nope' });
     expect(unauthorizedMemory.status).toBe(401);
 
     const health = await agent.get('/health');
@@ -139,21 +155,30 @@ describe('Gateway routes integration', () => {
     const models = await agent.get('/models');
     expect(models.status).toBe(200);
     // OpenAI-style: { object: 'list', data: [...] }
-    expect(models.body && (models.body.object === 'list' || models.body.object === undefined)).toBe(true);
+    expect(
+      models.body &&
+        (models.body.object === 'list' || models.body.object === undefined)
+    ).toBe(true);
     const data = Array.isArray(models.body?.data) ? models.body.data : [];
     expect(data.length).toBeGreaterThan(0);
 
-    const completion = await agent.post('/complete').send({ language: 'js', prefix: 'const a =', suffix: '1;' });
+    const completion = await agent
+      .post('/complete')
+      .send({ language: 'js', prefix: 'const a =', suffix: '1;' });
     expect(completion.status).toBe(200);
     expect(completion.body).toHaveProperty('completion');
     expect(completion.body.completion).toContain('stub:const a =1;');
 
-    const chat = await agent.post('/chat').send({ messages: [{ role: 'user', content: 'hello' }] });
+    const chat = await agent
+      .post('/chat')
+      .send({ messages: [{ role: 'user', content: 'hello' }] });
     expect(chat.status).toBe(200);
     expect(chat.body?.message?.role).toBe('assistant');
     expect(chat.body?.message?.content).toBe('stub response');
 
-    const scan = await agent.post('/scan').send({ root: tmpDir, maxFileSize: 2048 });
+    const scan = await agent
+      .post('/scan')
+      .send({ root: tmpDir, maxFileSize: 2048 });
     expect(scan.status).toBe(200);
     expect(scan.body.ok).toBe(true);
     expect(scan.body.count).toBeGreaterThan(0);
@@ -180,14 +205,20 @@ describe('Gateway routes integration', () => {
     const ready = await agent.get('/ready');
     expect([200, 503]).toContain(ready.status);
 
-    let login = await agent.post('/auth/login').send({ username: 'admin', password: 'changethis', workspaceId: 'ws-it' });
+    let login = await agent.post('/auth/login').send({
+      username: 'admin',
+      password: 'changethis',
+      workspaceId: 'ws-it',
+    });
     let token;
     if (login.status === 401) {
       const username = `user_${Date.now()}`;
       const password = 'pass-123';
       const user = db.createUser(username, password);
       expect(user).toHaveProperty('id');
-      login = await agent.post('/auth/login').send({ username, password, workspaceId: 'ws-it' });
+      login = await agent
+        .post('/auth/login')
+        .send({ username, password, workspaceId: 'ws-it' });
     }
     expect(login.status).toBe(200);
     token = login.body.token;
@@ -204,7 +235,9 @@ describe('Gateway routes integration', () => {
       .get('/memory/short')
       .set('Authorization', `Bearer ${token}`);
     expect(shortList.status).toBe(200);
-    expect(shortList.body.items.some((item) => item.content === 'short memory entry')).toBe(true);
+    expect(
+      shortList.body.items.some((item) => item.content === 'short memory entry')
+    ).toBe(true);
 
     const longWrite = await agent
       .post('/memory/long')
@@ -217,14 +250,16 @@ describe('Gateway routes integration', () => {
       .get('/memory/long')
       .set('Authorization', `Bearer ${token}`);
     expect(longList.status).toBe(200);
-    expect(longList.body.items.some((item) => item.content === 'long memory entry')).toBe(true);
+    expect(
+      longList.body.items.some((item) => item.content === 'long memory entry')
+    ).toBe(true);
 
     const planResponse = await agent.post('/plan').send({
       query: 'Deploy hello world service',
       mode: 'local',
       target: 'dev',
       envOs: 'linux',
-      constraints: 'no downtime'
+      constraints: 'no downtime',
     });
     if (planResponse.status === 200) {
       expect(planResponse.body.ok).toBe(true);
@@ -251,44 +286,56 @@ describe('Gateway routes integration', () => {
       expect([400, 500]).toContain(insightsResponse.status);
     }
 
-    const searx = await agent
-      .get('/searxng')
-      .query({ q: 'hello world', n: 1 });
+    const searx = await agent.get('/searxng').query({ q: 'hello world', n: 1 });
     expect([200, 500]).toContain(searx.status);
 
     await setStubFixture({ chat_stream_chunks: ['chunk-one', ' chunk-two'] });
-    const streamRes = await fetchStream(`http://127.0.0.1:${server.address().port}/chat/stream`, {
-      messages: [{ role: 'user', content: 'stream please' }]
-    });
+    const streamRes = await fetchStream(
+      `http://127.0.0.1:${server.address().port}/chat/stream`,
+      {
+        messages: [{ role: 'user', content: 'stream please' }],
+      }
+    );
     expect(streamRes.status).toBe(200);
     expect(streamRes.text).toContain('chunk-one');
     expect(streamRes.text).toContain('[DONE]');
 
     await setStubFixture({ chat_status: 500 });
-    const streamFail = await fetchStream(`http://127.0.0.1:${server.address().port}/chat/stream`, {
-      messages: [{ role: 'user', content: 'stream fail' }]
-    });
+    const streamFail = await fetchStream(
+      `http://127.0.0.1:${server.address().port}/chat/stream`,
+      {
+        messages: [{ role: 'user', content: 'stream fail' }],
+      }
+    );
     expect(streamFail.status).toBe(502);
 
     await setStubFixture({ reset: true });
 
     await setStubFixture({ completion_status: 500 });
-    const failingComplete = await agent.post('/complete').send({ language: 'js', prefix: 'const a =', suffix: '1;' });
+    const failingComplete = await agent
+      .post('/complete')
+      .send({ language: 'js', prefix: 'const a =', suffix: '1;' });
     expect(failingComplete.status).toBe(502);
 
     await setStubFixture({ completion_timeout: true });
-    const timeoutComplete = await agent.post('/complete').send({ language: 'js', prefix: 'const a =', suffix: '1;' });
+    const timeoutComplete = await agent
+      .post('/complete')
+      .send({ language: 'js', prefix: 'const a =', suffix: '1;' });
     expect([502, 504]).toContain(timeoutComplete.status);
 
     await setStubFixture({ reset: true });
 
-    const invalidComplete = await agent.post('/complete').send({ language: 'js', prefix: '' });
+    const invalidComplete = await agent
+      .post('/complete')
+      .send({ language: 'js', prefix: '' });
     expect(invalidComplete.status).toBe(400);
 
     const invalidResearch = await agent.get('/research');
     expect(invalidResearch.status).toBe(400);
 
-    const invalidPlan = await agent.post('/plan').send({ mode: 'invalid-mode' });
+    const invalidPlan = await agent
+      .post('/plan')
+      .send({ mode: 'invalid-mode' });
     expect(invalidPlan.status).toBe(400);
   });
 });

@@ -23,15 +23,15 @@ npm run stub:llama -- --fixture tests/fixtures/llama_stub.sample.json
 
 Available flags (repeat as needed):
 
-* `--fixture <path>` – load a JSON file with keys like `models`, `completion_text`,
+- `--fixture <path>` – load a JSON file with keys like `models`, `completion_text`,
   `chat_content`, `completion_status`, `chat_status`.
-* `--completion-text <text>` – inline override for completion output.
-* `--chat-content <text>` – inline override for chat output.
-* `--completion-status <code>` / `--chat-status <code>` – force HTTP status codes.
-* `--delay-completion <seconds>` / `--delay-chat <seconds>` – sleep before sending a response.
-* `--timeout-completion` / `--timeout-chat` – close the connection without responding (simulates upstream timeouts).
-* `--models <id1,id2>` – comma-separated list returned from `/v1/models`.
-* `--env KEY=VALUE` – pass through arbitrary environment variables to the stub.
+- `--completion-text <text>` – inline override for completion output.
+- `--chat-content <text>` – inline override for chat output.
+- `--completion-status <code>` / `--chat-status <code>` – force HTTP status codes.
+- `--delay-completion <seconds>` / `--delay-chat <seconds>` – sleep before sending a response.
+- `--timeout-completion` / `--timeout-chat` – close the connection without responding (simulates upstream timeouts).
+- `--models <id1,id2>` – comma-separated list returned from `/v1/models`.
+- `--env KEY=VALUE` – pass through arbitrary environment variables to the stub.
 
 Environment variables take precedence over fixtures, allowing ad-hoc tweaks when
 debugging. Sample presets live in `tests/fixtures/llama_stub.*.json` and have

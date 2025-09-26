@@ -8,7 +8,10 @@ async function encodeRow(table, row) {
   const state = { content: row.content || '' };
   const { bytes } = await RAX1.encode(state);
   const buf = Buffer.from(bytes);
-  run(`UPDATE ${table} SET working_tokens = ? , updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [buf, row.id]);
+  run(
+    `UPDATE ${table} SET working_tokens = ? , updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+    [buf, row.id]
+  );
 }
 
 export async function encodeAllMemories({ reencode = false } = {}) {

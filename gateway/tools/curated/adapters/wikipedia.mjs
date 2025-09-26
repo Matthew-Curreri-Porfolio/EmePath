@@ -3,7 +3,10 @@
 import { httpGet, stripTags } from '../ingest/util.mjs';
 import { toDoc } from '../ingest/normalize.mjs';
 
-export async function fetchByTitle(title, { lang = 'en', license = 'CC BY-SA' } = {}) {
+export async function fetchByTitle(
+  title,
+  { lang = 'en', license = 'CC BY-SA' } = {}
+) {
   const enc = encodeURIComponent(title);
   const base = `https://${lang}.wikipedia.org`;
   const summaryUrl = `${base}/api/rest_v1/page/summary/${enc}`;
@@ -14,7 +17,13 @@ export async function fetchByTitle(title, { lang = 'en', license = 'CC BY-SA' } 
     httpGet(htmlUrl, { headers: { Accept: 'text/html' } }),
   ]);
 
-  const summary = (() => { try { return JSON.parse(sRes.text); } catch { return null; } })();
+  const summary = (() => {
+    try {
+      return JSON.parse(sRes.text);
+    } catch {
+      return null;
+    }
+  })();
   const url = summary?.content_urls?.desktop?.page || `${base}/wiki/${enc}`;
   const titleOut = summary?.title || title;
   const extract = summary?.extract || '';
@@ -36,4 +45,3 @@ export async function fetchByTitle(title, { lang = 'en', license = 'CC BY-SA' } 
 }
 
 export default { fetchByTitle };
-

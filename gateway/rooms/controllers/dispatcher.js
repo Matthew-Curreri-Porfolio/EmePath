@@ -14,7 +14,12 @@ export function decideRooms(task) {
 export async function runRooms(task, deps) {
   const plan = decideRooms(task);
   if (plan[0] === 'inline') {
-    return makeOutcome({ taskId: task.id, status: 'success', rationale: 'Trivial task handled inline', artifacts: { answer: task.goal } });
+    return makeOutcome({
+      taskId: task.id,
+      status: 'success',
+      rationale: 'Trivial task handled inline',
+      artifacts: { answer: task.goal },
+    });
   }
   const { brainstorm, consensus } = deps.rooms;
   const ideas = await brainstorm(task, deps);

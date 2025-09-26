@@ -1,4 +1,3 @@
-
 import fs from 'fs';
 import Database from 'better-sqlite3';
 import path from 'path';
@@ -8,18 +7,22 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const MIGRATIONS_DIR = path.resolve(__dirname, 'migrations');
 
-
 const isTest = process.env.NODE_ENV === 'test';
 
 let db;
-const DB_PATH = isTest ? ':memory:' : path.resolve(process.cwd(), 'gateway', 'db', 'app.db');
+const DB_PATH = isTest
+  ? ':memory:'
+  : path.resolve(process.cwd(), 'gateway', 'db', 'app.db');
 
 // Determine if a persistent DB already exists (before opening)
 const existedBefore = !isTest && fs.existsSync(DB_PATH);
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
 // Open database with verbose logging only in tests or when creating a brand new DB
-const wantVerbose = isTest || (!existedBefore && process.env.DB_VERBOSE !== '0') || process.env.DB_VERBOSE === '1';
+const wantVerbose =
+  isTest ||
+  (!existedBefore && process.env.DB_VERBOSE !== '0') ||
+  process.env.DB_VERBOSE === '1';
 db = new Database(DB_PATH, wantVerbose ? { verbose: console.log } : {});
 
 // Run migrations
@@ -47,11 +50,25 @@ let needInit = isTest || !existedBefore;
 // If DB file exists but tables are missing (corrupted/partial), force init
 if (!needInit && !isTest) {
   try {
-    const u = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").get();
-    const s = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='short_term_memory'").get();
-    const l = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='long_term_memory'").get();
+    const u = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+      )
+      .get();
+    const s = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='short_term_memory'"
+      )
+      .get();
+    const l = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='long_term_memory'"
+      )
+      .get();
     if (!u || !u.name || !s || !s.name || !l || !l.name) needInit = true;
-  } catch { needInit = true; }
+  } catch {
+    needInit = true;
+  }
 }
 
 if (needInit) {
@@ -75,8 +92,18 @@ if (needInit) {
     ensureColumn(db, 'long_term_memory', 'working_tokens', 'BLOB');
     ensureColumn(db, 'short_term_memory', 'memid', 'TEXT');
     ensureColumn(db, 'long_term_memory', 'memid', 'TEXT');
-    ensureColumn(db, 'short_term_memory', 'created_at', 'DATETIME DEFAULT CURRENT_TIMESTAMP');
-    ensureColumn(db, 'long_term_memory', 'created_at', 'DATETIME DEFAULT CURRENT_TIMESTAMP');
+    ensureColumn(
+      db,
+      'short_term_memory',
+      'created_at',
+      'DATETIME DEFAULT CURRENT_TIMESTAMP'
+    );
+    ensureColumn(
+      db,
+      'long_term_memory',
+      'created_at',
+      'DATETIME DEFAULT CURRENT_TIMESTAMP'
+    );
   } catch (e) {
     const msg = String((e && e.message) || e);
     if (/duplicate column name:/i.test(msg)) {
@@ -88,26 +115,48 @@ if (needInit) {
 
   // Backfill newly added columns so UNIQUE indexes can be applied safely
   try {
-    db.exec(`UPDATE short_term_memory SET memid = COALESCE(NULLIF(memid, ''), 'default')`);
-    db.exec(`UPDATE long_term_memory SET memid = COALESCE(NULLIF(memid, ''), 'default')`);
-    db.exec(`UPDATE short_term_memory SET created_at = COALESCE(created_at, updated_at, CURRENT_TIMESTAMP)`);
-    db.exec(`UPDATE long_term_memory SET created_at = COALESCE(created_at, updated_at, CURRENT_TIMESTAMP)`);
-    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_short_term_memid ON short_term_memory(user_id, workspace_id, memid)`);
-    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_long_term_memid ON long_term_memory(user_id, workspace_id, memid)`);
+    db.exec(
+      `UPDATE short_term_memory SET memid = COALESCE(NULLIF(memid, ''), 'default')`
+    );
+    db.exec(
+      `UPDATE long_term_memory SET memid = COALESCE(NULLIF(memid, ''), 'default')`
+    );
+    db.exec(
+      `UPDATE short_term_memory SET created_at = COALESCE(created_at, updated_at, CURRENT_TIMESTAMP)`
+    );
+    db.exec(
+      `UPDATE long_term_memory SET created_at = COALESCE(created_at, updated_at, CURRENT_TIMESTAMP)`
+    );
+    db.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_short_term_memid ON short_term_memory(user_id, workspace_id, memid)`
+    );
+    db.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_long_term_memid ON long_term_memory(user_id, workspace_id, memid)`
+    );
   } catch (e) {
-    console.warn('[ensure] memory index backfill warning:', String(e && e.message || e));
+    console.warn(
+      '[ensure] memory index backfill warning:',
+      String((e && e.message) || e)
+    );
   }
 
   // Bootstrap a default admin user for development/testing if no users exist
   try {
     const row = db.prepare('SELECT COUNT(1) AS c FROM users').get();
     if (!row || Number(row.c) === 0) {
-      db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run(['admin', 'changethis']);
-      console.log('[bootstrap] created default admin user with password "changethis"');
+      db.prepare(
+        'INSERT INTO users (username, password_hash) VALUES (?, ?)'
+      ).run(['admin', 'changethis']);
+      console.log(
+        '[bootstrap] created default admin user with password "changethis"'
+      );
     }
   } catch (e) {
     // ignore if table not ready or any race in tests
-    console.warn('[bootstrap] default admin check failed:', String(e && e.message || e));
+    console.warn(
+      '[bootstrap] default admin check failed:',
+      String((e && e.message) || e)
+    );
   }
 }
 
@@ -141,16 +190,27 @@ export function all(sql, params = []) {
 
 // -------------- LLM cache + logging --------------
 
-function tryParseJSON(x) { try { return JSON.parse(String(x || '')); } catch { return null; } }
+function tryParseJSON(x) {
+  try {
+    return JSON.parse(String(x || ''));
+  } catch {
+    return null;
+  }
+}
 
 export function cacheGet(kind, key) {
-  const row = get(`SELECT key, kind, model, request, response, raw, created_at, expires_at FROM llm_cache WHERE key = ? LIMIT 1`, [key]);
+  const row = get(
+    `SELECT key, kind, model, request, response, raw, created_at, expires_at FROM llm_cache WHERE key = ? LIMIT 1`,
+    [key]
+  );
   if (!row) return null;
   if (row.expires_at) {
     const expTs = Date.parse(row.expires_at);
     if (Number.isFinite(expTs) && expTs < Date.now()) {
       // expired; best-effort cleanup
-      try { run(`DELETE FROM llm_cache WHERE key = ?`, [key]); } catch {}
+      try {
+        run(`DELETE FROM llm_cache WHERE key = ?`, [key]);
+      } catch {}
       return null;
     }
   }
@@ -166,7 +226,11 @@ export function cacheGet(kind, key) {
   };
 }
 
-export function cachePut(kind, key, { model, requestObj, responseText, rawObj, ttlMs }) {
+export function cachePut(
+  kind,
+  key,
+  { model, requestObj, responseText, rawObj, ttlMs }
+) {
   const now = new Date();
   const exp = ttlMs && ttlMs > 0 ? new Date(now.getTime() + ttlMs) : null;
   const expires = exp ? exp.toISOString() : null;
@@ -189,7 +253,19 @@ export function cachePut(kind, key, { model, requestObj, responseText, rawObj, t
   );
 }
 
-export function logLLM(kind, { model, requestObj, responseText, rawObj, promptTokens, completionTokens, totalTokens, costUsd }) {
+export function logLLM(
+  kind,
+  {
+    model,
+    requestObj,
+    responseText,
+    rawObj,
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    costUsd,
+  }
+) {
   const id = randomUUID();
   run(
     `INSERT INTO llm_requests (id, kind, model, request, response, raw, created_at, prompt_tokens, completion_tokens, total_tokens, cost_usd)
@@ -212,14 +288,24 @@ export function logLLM(kind, { model, requestObj, responseText, rawObj, promptTo
 
 export function purgeExpiredCache() {
   try {
-    const info = run(`DELETE FROM llm_cache WHERE expires_at IS NOT NULL AND expires_at < CURRENT_TIMESTAMP`);
+    const info = run(
+      `DELETE FROM llm_cache WHERE expires_at IS NOT NULL AND expires_at < CURRENT_TIMESTAMP`
+    );
     return info?.changes || 0;
-  } catch (e) { return 0; }
+  } catch (e) {
+    return 0;
+  }
 }
 
 export function cacheStats() {
-  const summary = get(`SELECT COUNT(1) as count, MIN(created_at) as oldest, MAX(created_at) as newest FROM llm_cache`, []);
-  const expiring = get(`SELECT COUNT(1) as expiring FROM llm_cache WHERE expires_at IS NOT NULL AND expires_at < datetime('now', '+5 minutes')`, []);
+  const summary = get(
+    `SELECT COUNT(1) as count, MIN(created_at) as oldest, MAX(created_at) as newest FROM llm_cache`,
+    []
+  );
+  const expiring = get(
+    `SELECT COUNT(1) as expiring FROM llm_cache WHERE expires_at IS NOT NULL AND expires_at < datetime('now', '+5 minutes')`,
+    []
+  );
   return {
     count: Number(summary?.count || 0),
     oldest: summary?.oldest || null,
@@ -231,7 +317,13 @@ export function cacheStats() {
 // ------- LLM request audit queries -------
 function mapLLMRow(row) {
   if (!row) return null;
-  const tryJSON = (v) => { try { return JSON.parse(String(v || '')); } catch { return null; } };
+  const tryJSON = (v) => {
+    try {
+      return JSON.parse(String(v || ''));
+    } catch {
+      return null;
+    }
+  };
   return {
     id: row.id,
     kind: row.kind,
@@ -247,17 +339,38 @@ function mapLLMRow(row) {
   };
 }
 
-export function listLLMRequests({ model, kind, since, until, limit = 50, offset = 0, includeRequest = false, includeRaw = false } = {}) {
+export function listLLMRequests({
+  model,
+  kind,
+  since,
+  until,
+  limit = 50,
+  offset = 0,
+  includeRequest = false,
+  includeRaw = false,
+} = {}) {
   const where = [];
   const args = [];
-  if (model) { where.push('model = ?'); args.push(model); }
-  if (kind) { where.push('kind = ?'); args.push(kind); }
-  if (since) { where.push('created_at >= ?'); args.push(since); }
-  if (until) { where.push('created_at <= ?'); args.push(until); }
+  if (model) {
+    where.push('model = ?');
+    args.push(model);
+  }
+  if (kind) {
+    where.push('kind = ?');
+    args.push(kind);
+  }
+  if (since) {
+    where.push('created_at >= ?');
+    args.push(since);
+  }
+  if (until) {
+    where.push('created_at <= ?');
+    args.push(until);
+  }
   const selReq = includeRequest ? ', request' : '';
   const selRaw = includeRaw ? ', raw' : '';
   const sql = `SELECT id, kind, model, created_at, response, prompt_tokens, completion_tokens, total_tokens, cost_usd${selReq}${selRaw}
-              FROM llm_requests ${where.length ? ('WHERE ' + where.join(' AND ')) : ''}
+              FROM llm_requests ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
               ORDER BY datetime(created_at) DESC
               LIMIT ? OFFSET ?`;
   args.push(Math.min(Math.max(1, Number(limit) || 50), 500));
@@ -267,17 +380,36 @@ export function listLLMRequests({ model, kind, since, until, limit = 50, offset 
 }
 
 export function getLLMRequestById(id) {
-  const row = get(`SELECT id, kind, model, created_at, request, response, raw, prompt_tokens, completion_tokens, total_tokens, cost_usd FROM llm_requests WHERE id = ? LIMIT 1`, [id]);
+  const row = get(
+    `SELECT id, kind, model, created_at, request, response, raw, prompt_tokens, completion_tokens, total_tokens, cost_usd FROM llm_requests WHERE id = ? LIMIT 1`,
+    [id]
+  );
   return mapLLMRow(row);
 }
 
-export function summarizeLLMRequests({ since, until, kind, group = 'model', limit = 100, offset = 0 } = {}) {
+export function summarizeLLMRequests({
+  since,
+  until,
+  kind,
+  group = 'model',
+  limit = 100,
+  offset = 0,
+} = {}) {
   const where = [];
   const args = [];
-  if (kind) { where.push('kind = ?'); args.push(kind); }
-  if (since) { where.push('created_at >= ?'); args.push(since); }
-  if (until) { where.push('created_at <= ?'); args.push(until); }
-  const clause = where.length ? ('WHERE ' + where.join(' AND ')) : '';
+  if (kind) {
+    where.push('kind = ?');
+    args.push(kind);
+  }
+  if (since) {
+    where.push('created_at >= ?');
+    args.push(since);
+  }
+  if (until) {
+    where.push('created_at <= ?');
+    args.push(until);
+  }
+  const clause = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const lim = Math.min(Math.max(1, Number(limit) || 100), 1000);
   const off = Math.max(0, Number(offset) || 0);
 
@@ -288,7 +420,12 @@ export function summarizeLLMRequests({ since, until, kind, group = 'model', limi
                  ORDER BY day DESC
                  LIMIT ? OFFSET ?`;
     const rows = all(sql, [...args, lim, off]);
-    return rows.map(r => ({ day: r.day, count: Number(r.count || 0), first: r.first, last: r.last }));
+    return rows.map((r) => ({
+      day: r.day,
+      count: Number(r.count || 0),
+      first: r.first,
+      last: r.last,
+    }));
   }
   if (group === 'model_date') {
     const sql = `SELECT COALESCE(model,'') as model, date(created_at) as day, COUNT(1) as count
@@ -297,7 +434,11 @@ export function summarizeLLMRequests({ since, until, kind, group = 'model', limi
                  ORDER BY model ASC, day DESC
                  LIMIT ? OFFSET ?`;
     const rows = all(sql, [...args, lim, off]);
-    return rows.map(r => ({ model: r.model, day: r.day, count: Number(r.count || 0) }));
+    return rows.map((r) => ({
+      model: r.model,
+      day: r.day,
+      count: Number(r.count || 0),
+    }));
   }
   // default: group by model
   const sql = `SELECT COALESCE(model,'') as model, COUNT(1) as count, MIN(created_at) as first, MAX(created_at) as last
@@ -306,7 +447,12 @@ export function summarizeLLMRequests({ since, until, kind, group = 'model', limi
                ORDER BY count DESC, model ASC
                LIMIT ? OFFSET ?`;
   const rows = all(sql, [...args, lim, off]);
-  return rows.map(r => ({ model: r.model, count: Number(r.count || 0), first: r.first, last: r.last }));
+  return rows.map((r) => ({
+    model: r.model,
+    count: Number(r.count || 0),
+    first: r.first,
+    last: r.last,
+  }));
 }
 
 const DEFAULT_MEMID = 'default';
@@ -359,7 +505,15 @@ export function deleteMemory(userId, workspaceId, scope, memid) {
   return info.changes > 0;
 }
 
-export function upsertMemory(userId, workspaceId, scope, memid, content, mode = 'set', separator = '\n') {
+export function upsertMemory(
+  userId,
+  workspaceId,
+  scope,
+  memid,
+  content,
+  mode = 'set',
+  separator = '\n'
+) {
   const table = tableForScope(scope);
   const id = normalizeMemid(memid);
   const sep = typeof separator === 'string' ? separator : '\n';
@@ -395,7 +549,10 @@ export function getUserByUsername(username) {
   return row;
 }
 export function createUser(username, passwordHash) {
-  const info = run('INSERT INTO users (username, password_hash) VALUES (?, ?)', [username, passwordHash]);
+  const info = run(
+    'INSERT INTO users (username, password_hash) VALUES (?, ?)',
+    [username, passwordHash]
+  );
   return { id: info.lastInsertRowid, username };
 }
 export function setShortTerm(userId, workspaceId, content) {
@@ -431,28 +588,53 @@ export function insertForecast(f) {
   return info.lastInsertRowid;
 }
 
-export function listForecasts({ status, topic, limit=100 } = {}) {
+export function listForecasts({ status, topic, limit = 100 } = {}) {
   let sql = 'SELECT * FROM forecasts';
   const where = [];
   const params = [];
-  if (status) { where.push('status = ?'); params.push(String(status)); }
-  if (topic) { where.push('topic LIKE ?'); params.push(`%${topic}%`); }
+  if (status) {
+    where.push('status = ?');
+    params.push(String(status));
+  }
+  if (topic) {
+    where.push('topic LIKE ?');
+    params.push(`%${topic}%`);
+  }
   if (where.length) sql += ' WHERE ' + where.join(' AND ');
   sql += ' ORDER BY horizon_ts ASC LIMIT ?';
-  params.push(Math.min(500, Math.max(1, Number(limit)||100)));
+  params.push(Math.min(500, Math.max(1, Number(limit) || 100)));
   const stmt = db.prepare(sql);
   return stmt.all(params);
 }
 
-export function listDueForecasts({ nowTs = new Date().toISOString(), limit = 50 } = {}) {
+export function listDueForecasts({
+  nowTs = new Date().toISOString(),
+  limit = 50,
+} = {}) {
   const sql = `SELECT * FROM forecasts WHERE status = 'open' AND horizon_ts <= ? ORDER BY horizon_ts ASC LIMIT ?`;
   const stmt = db.prepare(sql);
-  return stmt.all([ nowTs, Math.min(200, Math.max(1, Number(limit)||50)) ]);
+  return stmt.all([nowTs, Math.min(200, Math.max(1, Number(limit) || 50))]);
 }
 
-export function resolveForecast(id, { outcome, judge, resolved_at = new Date().toISOString(), brier_score = null, notes = null } = {}) {
+export function resolveForecast(
+  id,
+  {
+    outcome,
+    judge,
+    resolved_at = new Date().toISOString(),
+    brier_score = null,
+    notes = null,
+  } = {}
+) {
   const sql = `UPDATE forecasts SET status='resolved', outcome=?, judge=?, resolved_at=?, brier_score=?, notes=? WHERE id=?`;
-  run(sql, [ String(outcome||'unknown'), JSON.stringify(judge||{}), resolved_at, (brier_score==null? null : Number(brier_score)), notes, id ]);
+  run(sql, [
+    String(outcome || 'unknown'),
+    JSON.stringify(judge || {}),
+    resolved_at,
+    brier_score == null ? null : Number(brier_score),
+    notes,
+    id,
+  ]);
 }
 
 // ------- Projects CRUD -------
@@ -470,13 +652,20 @@ function mapProjectRow(row) {
   };
 }
 
-export function createProject(userId, workspaceId, { name, description = null, active = true }) {
+export function createProject(
+  userId,
+  workspaceId,
+  { name, description = null, active = true }
+) {
   const act = active ? 1 : 0;
   const info = run(
     `INSERT INTO projects (user_id, workspace_id, name, description, active) VALUES (?, ?, ?, ?, ?)`,
     [userId, String(workspaceId || 'default'), String(name), description, act]
   );
-  const row = get(`SELECT id, user_id, workspace_id, name, description, active, created_at, updated_at FROM projects WHERE id = ?`, [info.lastInsertRowid]);
+  const row = get(
+    `SELECT id, user_id, workspace_id, name, description, active, created_at, updated_at FROM projects WHERE id = ?`,
+    [info.lastInsertRowid]
+  );
   return mapProjectRow(row);
 }
 
@@ -499,7 +688,10 @@ export function setProjectActive(userId, workspaceId, id, active) {
     [act, id, userId, String(workspaceId || 'default')]
   );
   if (!info || !info.changes) return null;
-  const row = get(`SELECT id, user_id, workspace_id, name, description, active, created_at, updated_at FROM projects WHERE id = ?`, [id]);
+  const row = get(
+    `SELECT id, user_id, workspace_id, name, description, active, created_at, updated_at FROM projects WHERE id = ?`,
+    [id]
+  );
   return mapProjectRow(row);
 }
 

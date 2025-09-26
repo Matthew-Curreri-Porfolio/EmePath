@@ -1,7 +1,5 @@
 {
   "completion_status": 500,
   "chat_status": 500,
-  "models": [
-    { "id": "error-model" }
-  ]
+  "models": [{ "id": "error-model" }]
 }

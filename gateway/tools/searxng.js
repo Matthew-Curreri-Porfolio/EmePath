@@ -15,9 +15,22 @@ function decodeEntities(str) {
 
 export async function searchSearxng(
   query,
-  { base, num = 5, site, lang = 'en', safe = false, fresh, signal, timeoutMs = 8000 } = {}
+  {
+    base,
+    num = 5,
+    site,
+    lang = 'en',
+    safe = false,
+    fresh,
+    signal,
+    timeoutMs = 8000,
+  } = {}
 ) {
-  const searxBase = (base || process.env.SEARXNG_BASE || 'http://127.0.0.1:8888').replace(/\/$/, '');
+  const searxBase = (
+    base ||
+    process.env.SEARXNG_BASE ||
+    'http://127.0.0.1:8888'
+  ).replace(/\/$/, '');
   const q = site ? `${query} site:${site}` : query;
   const params = new URLSearchParams({ q, format: 'json' });
   // SearXNG: language -> "language" or "lang"; prefer "language"
@@ -35,24 +48,34 @@ export async function searchSearxng(
 
   const url = `${searxBase}/search?${params.toString()}`;
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), Math.max(1000, Number(timeoutMs) || 8000));
+  const timer = setTimeout(
+    () => ctrl.abort(),
+    Math.max(1000, Number(timeoutMs) || 8000)
+  );
   try {
-    const res = await fetch(url, { signal: signal || ctrl.signal, headers: { 'accept': 'application/json' } });
+    const res = await fetch(url, {
+      signal: signal || ctrl.signal,
+      headers: { accept: 'application/json' },
+    });
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     const data = await res.json().catch(() => ({}));
     const arr = Array.isArray(data?.results) ? data.results : [];
-    const results = arr.slice(0, num).map((r, i) => ({
-      rank: i + 1,
-      title: decodeEntities(String(r.title || '')),
-      url: r.url || r.href || '',
-      snippet: decodeEntities(String(r.content || r.snippet || '')),
-    })).filter(r => r.url);
+    const results = arr
+      .slice(0, num)
+      .map((r, i) => ({
+        rank: i + 1,
+        title: decodeEntities(String(r.title || '')),
+        url: r.url || r.href || '',
+        snippet: decodeEntities(String(r.content || r.snippet || '')),
+      }))
+      .filter((r) => r.url);
     if (!results.length) return { ok: false, error: 'no_results' };
     return { ok: true, results };
   } catch (e) {
-    return { ok: false, error: String(e && e.message || e) };
-  } finally { clearTimeout(timer); }
+    return { ok: false, error: String((e && e.message) || e) };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export default searchSearxng;
-

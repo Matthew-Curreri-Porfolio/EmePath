@@ -47,7 +47,9 @@ const port = await new Promise((resolve, reject) => {
   };
   const onExit = (code) => {
     cleanup();
-    reject(new Error(`llama_stub.py exited before reporting port (code ${code})`));
+    reject(
+      new Error(`llama_stub.py exited before reporting port (code ${code})`)
+    );
   };
   child.stdout.on('data', onData);
   child.once('error', onError);
@@ -59,9 +61,17 @@ process.env.LLAMACPP_SERVER = `http://127.0.0.1:${port}`;
 globalThis.__LLAMA_STUB__ = { port, child };
 
 const shutdown = () => {
-  try { child.kill('SIGTERM'); } catch {}
+  try {
+    child.kill('SIGTERM');
+  } catch {}
 };
 
 process.once('exit', shutdown);
-process.once('SIGINT', () => { shutdown(); process.exit(130); });
-process.once('SIGTERM', () => { shutdown(); process.exit(143); });
+process.once('SIGINT', () => {
+  shutdown();
+  process.exit(130);
+});
+process.once('SIGTERM', () => {
+  shutdown();
+  process.exit(143);
+});

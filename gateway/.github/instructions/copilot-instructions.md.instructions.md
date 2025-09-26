@@ -1,4 +1,4 @@
-applyTo: '**'
+applyTo: '\*\*'
 Operating Mode
 
 Move quickly; I’m always in a rush.
@@ -180,28 +180,27 @@ VS Code Helpers (optional)
 .vscode/launch.json
 
 {
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "name": "Run Extension",
-      "type": "extensionHost",
-      "request": "launch",
-      "runtimeExecutable": "code",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}/extension"],
-      "env": { "OSS_CODEX_GATEWAY": "http://127.0.0.1:3123" }
-    }
-  ]
+"version": "0.2.0",
+"configurations": [
+{
+"name": "Run Extension",
+"type": "extensionHost",
+"request": "launch",
+"runtimeExecutable": "code",
+"args": ["--extensionDevelopmentPath=${workspaceFolder}/extension"],
+"env": { "OSS_CODEX_GATEWAY": "http://127.0.0.1:3123" }
 }
-
+]
+}
 
 .vscode/tasks.json
 
 {
-  "version": "2.0.0",
-  "tasks": [
-    { "label": "gateway:start", "type": "shell", "command": "npm --prefix gateway run start" },
-    { "label": "extension:watch", "type": "shell", "command": "npm --prefix extension run watch" }
-  ]
+"version": "2.0.0",
+"tasks": [
+{ "label": "gateway:start", "type": "shell", "command": "npm --prefix gateway run start" },
+{ "label": "extension:watch", "type": "shell", "command": "npm --prefix extension run watch" }
+]
 }
 
 Troubleshooting

@@ -1,6 +1,3 @@
 {
-  "chat_stream_chunks": [
-    "Hello stream chunk",
-    " from stub!"
-  ]
+  "chat_stream_chunks": ["Hello stream chunk", " from stub!"]
 }

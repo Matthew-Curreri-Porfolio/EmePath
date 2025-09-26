@@ -1,33 +1,38 @@
 // gateway/utils.js
 // Shared helper functions used by the routes.
 
-import fs from "fs";
-import path from "path";
-import ignore from "ignore";
+import fs from 'fs';
+import path from 'path';
+import ignore from 'ignore';
 
 export function log(e) {
   const line = JSON.stringify({ ts: new Date().toISOString(), ...e });
   console.log(line);
   try {
-    const stream = fs.createWriteStream(process.env.LOG_FILE || path.join(__dirname, "logs", "gateway.log"), { flags: "a" });
-    stream.write(line + "\n");
+    const stream = fs.createWriteStream(
+      process.env.LOG_FILE || path.join(__dirname, 'logs', 'gateway.log'),
+      { flags: 'a' }
+    );
+    stream.write(line + '\n');
   } catch {}
 }
 
 export function getTimeoutMs(v) {
   const n = Number(v);
-  return Number.isFinite(n) && n > 0 ? n : Number(process.env.GATEWAY_TIMEOUT_MS || 20000);
+  return Number.isFinite(n) && n > 0
+    ? n
+    : Number(process.env.GATEWAY_TIMEOUT_MS || 20000);
 }
 
 export function escapeRe(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export function loadGitignore(root) {
   const ig = ignore();
-  const gitignorePath = path.join(root, ".gitignore");
+  const gitignorePath = path.join(root, '.gitignore');
   try {
-    const data = fs.readFileSync(gitignorePath, "utf8");
+    const data = fs.readFileSync(gitignorePath, 'utf8');
     ig.add(data);
   } catch {}
   ig.add(DEFAULT_GITIGNORE);
@@ -47,7 +52,7 @@ export function scanDirectory(root, maxFileSize = 262144) {
     for (const ent of entries) {
       const abs = path.join(dir, ent.name);
       const rel = path.relative(root, abs);
-      const relPosix = rel.split(path.sep).join("/");
+      const relPosix = rel.split(path.sep).join('/');
       if (ig.ignores(relPosix)) continue;
       if (ent.isDirectory()) {
         walk(abs);
@@ -61,7 +66,7 @@ export function scanDirectory(root, maxFileSize = 262144) {
         if (st.size > maxFileSize) continue;
         let text;
         try {
-          text = fs.readFileSync(abs, "utf8");
+          text = fs.readFileSync(abs, 'utf8');
         } catch (_) {
           continue;
         }

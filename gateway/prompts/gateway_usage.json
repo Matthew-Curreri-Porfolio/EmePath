@@ -1,0 +1,307 @@
+{
+  "output_contract": "Output Contract: Respond ONLY with a single valid curl command on one line that can be pasted into a POSIX shell to invoke the endpoint. No prose, no code fences, no comments.",
+  "defaults": {
+    "base": "http://127.0.0.1:3123",
+    "token": "$TOKEN"
+  },
+  "instructions": "You are a curl command generator. Given an endpoint key from 'endpoints', optional params/body, and {base},{token} variables, output EXACTLY one curl command that triggers the endpoint and returns the response. Rules: 1) Use -sS for silent+errors. 2) Set method via -X. 3) For JSON request bodies, include -H 'content-type: application/json' and --data-raw '<compact JSON>'. 4) For SSE endpoints (sse=true), add -N and -H 'accept: text/event-stream'. 5) For bearer auth (auth='bearer'), add -H 'authorization: Bearer {token}'. 6) For GET with query, prefer -G with --data-urlencode key=value per parameter. 7) For array or object JSON bodies, keep on one line, no trailing spaces. 8) Always prepend the full URL as {base}{path}. 9) Do NOT include placeholders that the shell expands; use literal braces only for {base}/{token} replacement. 10) If a path has :params, substitute from provided inputs; if missing, output: curl -sS echo '{\"error\":\"missing_param:<name>\"}'.",
+  "endpoints": {
+    "public.health": { "method": "GET", "path": "/health", "auth": "none" },
+    "public.ready": { "method": "GET", "path": "/ready", "auth": "none" },
+    "public.metrics": { "method": "GET", "path": "/metrics", "auth": "none" },
+    "public.models": { "method": "GET", "path": "/models", "auth": "none" },
+    "model.resolve": {
+      "method": "GET",
+      "path": "/model/resolve",
+      "auth": "none",
+      "query": { "ref": "<modelRef>" }
+    },
+    "auth.login": {
+      "method": "POST",
+      "path": "/auth/login",
+      "auth": "none",
+      "body": {
+        "username": "<username>",
+        "password": "<password>",
+        "workspaceId": "default"
+      }
+    },
+    "chat.complete": {
+      "method": "POST",
+      "path": "/complete",
+      "auth": "none",
+      "body": { "language": "js", "prefix": "const a = ", "suffix": "1;" }
+    },
+    "chat.chat": {
+      "method": "POST",
+      "path": "/chat",
+      "auth": "none",
+      "body": { "messages": [{ "role": "user", "content": "hello" }] }
+    },
+    "chat.stream": {
+      "method": "POST",
+      "path": "/chat/stream",
+      "auth": "none",
+      "sse": true,
+      "body": { "messages": [{ "role": "user", "content": "stream please" }] }
+    },
+    "warmup.post": {
+      "method": "POST",
+      "path": "/warmup",
+      "auth": "none",
+      "body": { "model": "SimonPu/gpt-oss:20b_Q4_K_M" }
+    },
+    "warmup.stream": {
+      "method": "POST",
+      "path": "/warmup/stream",
+      "auth": "none",
+      "sse": true,
+      "body": {}
+    },
+    "search.searxng": {
+      "method": "GET",
+      "path": "/searxng",
+      "auth": "none",
+      "query": { "q": "hello world", "n": 1 }
+    },
+    "curated.search": {
+      "method": "GET",
+      "path": "/curated",
+      "auth": "none",
+      "query": { "q": "hello world", "n": 5 }
+    },
+    "research.get": {
+      "method": "GET",
+      "path": "/research",
+      "auth": "none",
+      "query": { "q": "topic", "mode": "web" }
+    },
+    "insights.get": {
+      "method": "GET",
+      "path": "/insights",
+      "auth": "none",
+      "query": { "q": "topic", "mode": "web" }
+    },
+    "insights.graph": {
+      "method": "GET",
+      "path": "/insights/graph",
+      "auth": "none",
+      "query": { "q": "topic", "mode": "web" }
+    },
+    "debate.get": {
+      "method": "GET",
+      "path": "/debate",
+      "auth": "none",
+      "query": { "q": "topic", "mode": "web", "trace": false }
+    },
+    "plan.post": {
+      "method": "POST",
+      "path": "/plan",
+      "auth": "none",
+      "body": {
+        "query": "Deploy hello world service",
+        "mode": "local",
+        "target": "general",
+        "envOs": "linux"
+      }
+    },
+    "train.loop": {
+      "method": "POST",
+      "path": "/train/loop",
+      "auth": "none",
+      "body": {
+        "topic": "sorting algorithms",
+        "mode": "local",
+        "iterations": 1,
+        "perIter": 1
+      }
+    },
+    "optimize.hw.run": {
+      "method": "POST",
+      "path": "/optimize/hw/run",
+      "auth": "none",
+      "body": { "model": "SimonPu/gpt-oss:20b_Q4_K_M" }
+    },
+    "optimize.hw.get": {
+      "method": "GET",
+      "path": "/optimize/hw",
+      "auth": "none"
+    },
+    "runtime.llama.start": {
+      "method": "POST",
+      "path": "/runtime/llama/start",
+      "auth": "none",
+      "body": {}
+    },
+    "runtime.llama.stop": {
+      "method": "POST",
+      "path": "/runtime/llama/stop",
+      "auth": "none",
+      "body": {}
+    },
+    "prompts.preview": {
+      "method": "GET",
+      "path": "/prompts/preview",
+      "auth": "none",
+      "query": { "key": "plan.system", "envOs": "linux" }
+    },
+    "forecast.seed": {
+      "method": "POST",
+      "path": "/forecast/seed",
+      "auth": "none",
+      "body": { "topic": "AI regulation", "count": 3, "mode": "hybrid" }
+    },
+    "forecast.resolve": {
+      "method": "POST",
+      "path": "/forecast/resolve",
+      "auth": "none",
+      "body": { "limit": 20 }
+    },
+    "forecast.list": {
+      "method": "GET",
+      "path": "/forecast",
+      "auth": "none",
+      "query": { "status": "open", "limit": 50 }
+    },
+    "forecast.stats": {
+      "method": "GET",
+      "path": "/forecast/stats",
+      "auth": "none"
+    },
+    "forecast.metrics": {
+      "method": "GET",
+      "path": "/forecast/metrics",
+      "auth": "none",
+      "query": { "bins": 10 }
+    },
+    "forecast.backtest.seed": {
+      "method": "POST",
+      "path": "/forecast/backtest/seed",
+      "auth": "none",
+      "body": { "calendarText": "BEGIN:VEVENT\nSUMMARY:Event\nEND:VEVENT" }
+    },
+    "auth.memory.short.list": {
+      "method": "GET",
+      "path": "/memory/short",
+      "auth": "bearer"
+    },
+    "auth.memory.short.get": {
+      "method": "GET",
+      "path": "/memory/short/:memid",
+      "auth": "bearer"
+    },
+    "auth.memory.short.post": {
+      "method": "POST",
+      "path": "/memory/short",
+      "auth": "bearer",
+      "body": { "content": "note", "mode": "set" }
+    },
+    "auth.memory.short.delete": {
+      "method": "DELETE",
+      "path": "/memory/short/:memid",
+      "auth": "bearer"
+    },
+    "auth.memory.long.list": {
+      "method": "GET",
+      "path": "/memory/long",
+      "auth": "bearer"
+    },
+    "auth.memory.long.get": {
+      "method": "GET",
+      "path": "/memory/long/:memid",
+      "auth": "bearer"
+    },
+    "auth.memory.long.post": {
+      "method": "POST",
+      "path": "/memory/long",
+      "auth": "bearer",
+      "body": { "content": "long note", "mode": "set" }
+    },
+    "auth.memory.long.delete": {
+      "method": "DELETE",
+      "path": "/memory/long/:memid",
+      "auth": "bearer"
+    },
+    "auth.memory.compact.short_to_long": {
+      "method": "POST",
+      "path": "/memory/compact/short-to-long",
+      "auth": "bearer",
+      "body": { "maxSummaryChars": 8000 }
+    },
+    "auth.memory.compact.long": {
+      "method": "POST",
+      "path": "/memory/compact/long",
+      "auth": "bearer",
+      "body": { "maxSummaryChars": 8000 }
+    },
+    "auth.projects.create": {
+      "method": "POST",
+      "path": "/projects",
+      "auth": "bearer",
+      "body": { "name": "alpha", "description": "first" }
+    },
+    "auth.projects.list": {
+      "method": "GET",
+      "path": "/projects",
+      "auth": "bearer"
+    },
+    "auth.projects.active": {
+      "method": "GET",
+      "path": "/projects/active",
+      "auth": "bearer"
+    },
+    "auth.projects.inactive": {
+      "method": "GET",
+      "path": "/projects/inactive",
+      "auth": "bearer"
+    },
+    "auth.projects.setActive": {
+      "method": "PATCH",
+      "path": "/projects/:id/active",
+      "auth": "bearer",
+      "body": { "active": false }
+    },
+    "admin.cache.stats": {
+      "method": "GET",
+      "path": "/admin/cache/stats",
+      "auth": "bearer"
+    },
+    "admin.cache.clear": {
+      "method": "POST",
+      "path": "/admin/cache/clear",
+      "auth": "bearer",
+      "body": { "expiredOnly": true }
+    },
+    "admin.logs.list": {
+      "method": "GET",
+      "path": "/admin/logs",
+      "auth": "bearer",
+      "query": { "limit": 10 }
+    },
+    "admin.logs.summary": {
+      "method": "GET",
+      "path": "/admin/logs/summary",
+      "auth": "bearer",
+      "query": { "group": "model" }
+    },
+    "admin.logs.get": {
+      "method": "GET",
+      "path": "/admin/logs/:id",
+      "auth": "bearer"
+    }
+  },
+  "examples": [
+    {
+      "key": "auth.projects.create",
+      "cmd": "curl -sS -X POST \"{base}/projects\" -H \"authorization: Bearer {token}\" -H \"content-type: application/json\" --data-raw '{\"name\":\"alpha\",\"description\":\"first\"}'"
+    },
+    {
+      "key": "chat.stream",
+      "cmd": "curl -sS -N -X POST \"{base}/chat/stream\" -H \"content-type: application/json\" -H \"accept: text/event-stream\" --data-raw '{\"messages\":[{\"role\":\"user\",\"content\":\"stream please\"}]}'"
+    },
+    {
+      "key": "search.searxng",
+      "cmd": "curl -sS -G \"{base}/searxng\" --data-urlencode q=hello+world --data-urlencode n=1"
+    }
+  ]
+}

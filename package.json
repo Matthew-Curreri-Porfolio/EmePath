@@ -38,6 +38,8 @@
     "prompts:preview": "node scripts/preview-prompt.mjs --"
   },
   "devDependencies": {
+    "eslint": "^9.36.0",
+    "prettier": "^3.6.2",
     "vitest": "^3.2.4"
   },
   "dependencies": {

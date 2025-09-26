@@ -16,7 +16,7 @@ async function readAllStdin() {
   return new Promise((resolve, reject) => {
     let data = '';
     process.stdin.setEncoding('utf8');
-    process.stdin.on('data', chunk => (data += chunk));
+    process.stdin.on('data', (chunk) => (data += chunk));
     process.stdin.on('end', () => resolve(data));
     process.stdin.on('error', reject);
   });
@@ -29,7 +29,8 @@ for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (a.startsWith('--')) {
     const k = a.replace(/^--/, '');
-    const v = (i + 1 < args.length && !args[i + 1].startsWith('--')) ? args[++i] : '1';
+    const v =
+      i + 1 < args.length && !args[i + 1].startsWith('--') ? args[++i] : '1';
     flags.set(k, v);
   } else {
     files.push(a);
@@ -39,7 +40,9 @@ for (let i = 0; i < args.length; i++) {
 const useLLM = flags.has('llm');
 const base = flags.get('base') || process.env.GATEWAY_BASE;
 const model = flags.get('model') || process.env.MODEL;
-const temperature = flags.get('temperature') ? Number(flags.get('temperature')) : undefined;
+const temperature = flags.get('temperature')
+  ? Number(flags.get('temperature'))
+  : undefined;
 
 const arg = files[0];
 let text = '';
@@ -55,5 +58,9 @@ if (arg) {
 
 const out = useLLM
   ? await extractDimensionalMarkupLLM(text, { base, model, temperature })
-  : extractDimensionalMarkup(text, { source: 'local', title: null, lang: 'en' });
+  : extractDimensionalMarkup(text, {
+      source: 'local',
+      title: null,
+      lang: 'en',
+    });
 process.stdout.write(JSON.stringify(out, null, 2));

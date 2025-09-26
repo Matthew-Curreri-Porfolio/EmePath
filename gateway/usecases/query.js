@@ -3,23 +3,31 @@
 const LOWER_CACHE = new Map();
 
 function isWordCharCode(code) {
-  return (code >= 97 && code <= 122) || // a-z
+  return (
+    (code >= 97 && code <= 122) || // a-z
     (code >= 48 && code <= 57) || // 0-9
-    code === 95; // _
+    code === 95
+  ); // _
 }
 
 export async function queryUseCase(req, res, deps) {
   const { log, escapeRe, getIndex, makeSnippets } = deps;
 
-  const q = String(req.body?.q || "").trim();
+  const q = String(req.body?.q || '').trim();
   const k = Math.min(Number(req.body?.k) || 8, 20);
   const index = getIndex();
   if (!index.root || index.files.length === 0) {
-    return res.status(400).json({ ok: false, error: "index is empty; call /scan first" });
+    return res
+      .status(400)
+      .json({ ok: false, error: 'index is empty; call /scan first' });
   }
-  if (!q) return res.status(400).json({ ok: false, error: "query 'q' required" });
+  if (!q)
+    return res.status(400).json({ ok: false, error: "query 'q' required" });
 
-  const terms = q.toLowerCase().split(/[^a-z0-9_]+/).filter(Boolean);
+  const terms = q
+    .toLowerCase()
+    .split(/[^a-z0-9_]+/)
+    .filter(Boolean);
   const scored = [];
 
   if (terms.length === 0) {
@@ -51,7 +59,8 @@ export async function queryUseCase(req, res, deps) {
         const leftOk = idx === 0 || !isWordCharCode(lower.charCodeAt(idx - 1));
         // check right boundary
         const afterIdx = idx + tlen;
-        const rightOk = afterIdx >= L || !isWordCharCode(lower.charCodeAt(afterIdx));
+        const rightOk =
+          afterIdx >= L || !isWordCharCode(lower.charCodeAt(afterIdx));
 
         if (leftOk && rightOk) score++;
         from = idx + tlen;

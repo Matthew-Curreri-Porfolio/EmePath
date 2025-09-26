@@ -5,8 +5,12 @@
   "version": "0.1.0",
   "publisher": "your-name",
   "license": "Apache-2.0",
-  "engines": { "vscode": "^1.90.0" },
-  "categories": ["Other"],
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
   "activationEvents": [
     "onCommand:codexz.openChat",
     "*"
@@ -29,10 +33,22 @@
       }
     },
     "commands": [
-      { "command": "codexz.openChat", "title": "Codexz: Open Chat" },
-      { "command": "codexz.ping", "title": "Codexz: Ping Gateway" },
-      { "command": "codexz.test", "title": "Codexz: Test Completion" },
-      { "command": "codexz.toggleInline", "title": "Codexz: Toggle Inline Completions" }
+      {
+        "command": "codexz.openChat",
+        "title": "Codexz: Open Chat"
+      },
+      {
+        "command": "codexz.ping",
+        "title": "Codexz: Ping Gateway"
+      },
+      {
+        "command": "codexz.test",
+        "title": "Codexz: Test Completion"
+      },
+      {
+        "command": "codexz.toggleInline",
+        "title": "Codexz: Toggle Inline Completions"
+      }
     ]
   },
   "scripts": {

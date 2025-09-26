@@ -1,5 +1,5 @@
 <AGENT_PATTERN id="rapid-whoogle-investigation" v="2025-09-12">
-  <GOAL>Make a brief TODO plan, inspect relevant gateway/tools files, probe Whoogle locally, propose a minimal fix, verify with tests, and report.</GOAL>
+<GOAL>Make a brief TODO plan, inspect relevant gateway/tools files, probe Whoogle locally, propose a minimal fix, verify with tests, and report.</GOAL>
 
   <DEFAULTS>
     env.WHOOGLE_BASE = "http://127.0.0.1:5010"
@@ -45,6 +45,7 @@
        <RECOMMENDED_FIX> bullet list of edits </RECOMMENDED_FIX>
        <VERIFY> commands + pass/fail </VERIFY>
        <NEXT> one concrete next action </NEXT>
+
   </FLOW>
 
   <CONSTRAINTS>

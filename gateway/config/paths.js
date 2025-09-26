@@ -3,9 +3,28 @@ import os from 'os';
 import path from 'path';
 
 const uniq = (a) => Array.from(new Set(a));
-const exists = (p) => { try { fs.statSync(p); return true; } catch { return false; } };
-const isFile = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } };
-const isDir  = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
+const exists = (p) => {
+  try {
+    fs.statSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+};
+const isFile = (p) => {
+  try {
+    return fs.statSync(p).isFile();
+  } catch {
+    return false;
+  }
+};
+const isDir = (p) => {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+};
 
 export function homeDir() {
   return process.env.HOME || os.homedir() || '';
@@ -14,7 +33,9 @@ export function homeDir() {
 export function modelRoots() {
   const h = homeDir();
   const envRoots = (process.env.MODEL_SEARCH_ROOTS || '')
-    .split(':').map(s => s.trim()).filter(Boolean);
+    .split(':')
+    .map((s) => s.trim())
+    .filter(Boolean);
   const common = [
     path.join(h, '.ollama/models'),
     '/root/.ollama/models',
@@ -28,7 +49,9 @@ export function modelRoots() {
 }
 
 export function manifestRoots() {
-  return modelRoots().map(r => path.join(r, 'manifests')).filter(isDir);
+  return modelRoots()
+    .map((r) => path.join(r, 'manifests'))
+    .filter(isDir);
 }
 
 export function blobPathForDigest(digest) {
@@ -55,5 +78,10 @@ export function resolvePython() {
   return 'python3';
 }
 
-export default { modelRoots, manifestRoots, blobPathForDigest, resolvePython, homeDir };
-
+export default {
+  modelRoots,
+  manifestRoots,
+  blobPathForDigest,
+  resolvePython,
+  homeDir,
+};

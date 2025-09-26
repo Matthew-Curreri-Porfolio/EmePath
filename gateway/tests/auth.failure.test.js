@@ -4,7 +4,13 @@ import cors from 'cors';
 import request from 'supertest';
 
 import registerRoutes from '../routes/index.js';
-import { log, getTimeoutMs, escapeRe, scanDirectory, makeSnippets } from '../utils.js';
+import {
+  log,
+  getTimeoutMs,
+  escapeRe,
+  scanDirectory,
+  makeSnippets,
+} from '../utils.js';
 import { OLLAMA, MODEL, MOCK, VERBOSE, LOG_BODY } from '../config.js';
 import { getIndex, setIndex } from '../state.js';
 import { getModels } from '../usecases/models.js';
@@ -36,7 +42,9 @@ describe('Auth failures', () => {
   });
 
   it('rejects missing credentials', async () => {
-    const res = await request(app).post('/auth/login').send({ username: 'user-only' });
+    const res = await request(app)
+      .post('/auth/login')
+      .send({ username: 'user-only' });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/username and password required/i);
   });

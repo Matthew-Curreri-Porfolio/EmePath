@@ -3,6 +3,7 @@
 High-signal, licensing-aware corpus for a focused, trustworthy search index. Each entry lists domains, preferred access, and licensing notes. Use this list together with `curated_sources.json` for machine-readable config.
 
 ## Core Reference
+
 - Wikipedia / Wikidata
   - Domains: `wikipedia.org`, `wikidata.org`
   - Access: REST API, search API, page/rev API; dumps optional
@@ -17,6 +18,7 @@ High-signal, licensing-aware corpus for a focused, trustworthy search index. Eac
   - License: Public domain (US Gov)
 
 ## Science & Medicine
+
 - arXiv
   - Domain: `arxiv.org`
   - Access: Atom API, OAI-PMH
@@ -51,6 +53,7 @@ High-signal, licensing-aware corpus for a focused, trustworthy search index. Eac
   - License: WHO CC BY-NC-SA IGO; CDC PD; NHS OGL
 
 ## Education & Transcripts
+
 - Khan Academy
   - Domain: `khanacademy.org`
   - Access: APIs/exports
@@ -73,6 +76,7 @@ High-signal, licensing-aware corpus for a focused, trustworthy search index. Eac
   - License: standard YouTube licenses; store transcripts with attribution and adhere to TOS
 
 ## Software & Web Docs
+
 - MDN Web Docs
   - Domain: `developer.mozilla.org`
   - Access: sitemaps/HTTP, content APIs
@@ -95,6 +99,7 @@ High-signal, licensing-aware corpus for a focused, trustworthy search index. Eac
   - License: varies; ArchWiki CC BY-SA
 
 ## How‑To & Practical
+
 - wikiHow
   - Domain: `wikihow.com`
   - Access: sitemaps/HTML
@@ -105,6 +110,7 @@ High-signal, licensing-aware corpus for a focused, trustworthy search index. Eac
   - License: CC BY-SA 4.0 (attribution required)
 
 ## Government, Law & Policy
+
 - govinfo.gov / Federal Register / CFR
   - Domains: `govinfo.gov`, `federalregister.gov`, `ecfr.gov`
   - Access: APIs
@@ -123,6 +129,7 @@ High-signal, licensing-aware corpus for a focused, trustworthy search index. Eac
   - License: PD/Open
 
 ## Data & Statistics
+
 - World Bank Open Data
   - Domain: `data.worldbank.org`, `api.worldbank.org`
   - Access: REST API
@@ -141,6 +148,7 @@ High-signal, licensing-aware corpus for a focused, trustworthy search index. Eac
   - License: varies
 
 ## Math & Logic
+
 - ProofWiki
   - Domain: `proofwiki.org`
   - Access: HTML
@@ -153,6 +161,7 @@ High-signal, licensing-aware corpus for a focused, trustworthy search index. Eac
 ---
 
 Notes
+
 - Favor APIs and sitemaps over raw crawling for stability and politeness.
 - Track per-document license and attribution metadata for downstream display/compliance.
 - For Stack Exchange, store author, post id, and link to satisfy CC BY-SA attribution.
@@ -162,6 +171,7 @@ Notes
 The following open-source repositories are strong examples for patterns, docs, tests, CI, and contributor health. Use them as reference implementations and, where useful, as curated content for software topics.
 
 ### Python-forward
+
 - `python/cpython` — Python interpreter + stdlib
 - `pypa/pip` — Python package installer (packaging best practices)
 - `tiangolo/fastapi` — modern web APIs (type hints, validation)
@@ -179,6 +189,7 @@ The following open-source repositories are strong examples for patterns, docs, t
 - `pandas-dev/pandas` — dataframes, IO, enhancement process
 
 ### JavaScript-forward
+
 - `nodejs/node` — runtime, release lines, governance
 - `facebook/react` — component model, RFCs, concurrent features
 - `vercel/next.js` — full-stack app framework + DX

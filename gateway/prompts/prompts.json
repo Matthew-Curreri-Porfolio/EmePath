@@ -76,11 +76,15 @@
   },
   "insights": {
     "system": "{{affirmations[affirmationKey]}} Using only the EVIDENCE blocks, extract structured insights.\nReturn a strict JSON object with these fields:\n{\n \"keyPoints\": [{\"text\": string, \"confidence\": number (0..1), \"sources\": [string]}],\n \"pros\": [{\"text\": string, \"sources\": [string]}],\n \"cons\": [{\"text\": string, \"sources\": [string]}],\n \"entities\": [{\"name\": string, \"type\": string, \"aliases\": [string]}],\n \"topics\": [{\"label\": string, \"weight\": number (0..1)}],\n \"controversies\": [string],\n \"consensus\": string,\n \"comparison\": { optional: true, \"dimensions\": [string], \"rows\": [{\"entity\": string, \"values\": [string]}] }\n}\nRules: Only use info grounded in EVIDENCE. List source ids like [\"W1\",\"L2\"]. Output JSON only.",
-    "defaults": { "affirmationKey": "{{personal.affirmation_defaults.insights}}" }
+    "defaults": {
+      "affirmationKey": "{{personal.affirmation_defaults.insights}}"
+    }
   },
   "answers": {
     "system": "{{affirmations[affirmation_key]}} Using only the EVIDENCE below, answer the USER question concisely. Cite sources inline like [1], [2], etc. If unsure, say you don't know.",
-    "defaults": { "affirmationKey": "{{personal.affirmation_defaults.answers}}" }
+    "defaults": {
+      "affirmationKey": "{{personal.affirmation_defaults.answers}}"
+    }
   },
   "debate": {
     "system": "{{affirmations[affirmationKey]}}\nUse only the EVIDENCE to argue. Debate roles: Pro, Con, Critic, Judge.\nRun {{rounds}} rounds of Pro vs Con; Critic highlights gaps; Judge delivers final verdict.\nReturn strict JSON:\n{\n \"verdict\": {\"position\": \"pro|con|uncertain\", \"confidence\": number (0..1)},\n \"summary\": string,\n \"arguments\": [{\"side\":\"pro|con\",\"claim\":string,\"support\":string,\"sources\":[string]}],\n \"unanswered\": [string],\n \"nextQuestions\": [string],\n {{trace_schema}}\n}\nRules: cite source ids like [\"W1\",\"L2\"]. Output JSON only.",
@@ -100,7 +104,9 @@
   },
   "compress": {
     "lora_distiller": "{{affirmations[affirmationKey]}} Convert the given chat history into LoRA training examples. Output JSONL only. One object per line. Keep only task-solving pairs; drop chit-chat and secrets. Schema keys: id, trainid, conversationId, turnIndex, part, totalParts, instruction, input, output, tags, language, source, memidRefs, createdAt, updatedAt. Second-precision ISO timestamps. Do not include any commentary.",
-    "defaults": { "affirmationKey": "{{personal.affirmation_defaults.compress_lora_distiller}}" }
+    "defaults": {
+      "affirmationKey": "{{personal.affirmation_defaults.compress_lora_distiller}}"
+    }
   },
   "training": {
     "question_synth": "{{affirmations[affirmationKey]}} Create complex, multi-hop questions grounded in the evidence.\nReturn strict JSON: { \"questions\": [string] }.\nEach question should require reasoning across 2-3 concepts, include constraints, and be realistic for practitioners.\nDifficulty: {{difficulty}}. Output JSON only.",
@@ -116,11 +122,15 @@
   },
   "annotations": {
     "extract_system": "{{affirmations[affirmationKey]}} Read the text and output ONLY a JSON object with this schema (no prose):\n\n{...}",
-    "defaults": { "affirmationKey": "{{personal.affirmation_defaults.annotations_extract}}" }
+    "defaults": {
+      "affirmationKey": "{{personal.affirmation_defaults.annotations_extract}}"
+    }
   },
   "rooms": {
     "watchdog_directive": "{{affirmations[affirmationKey]}} Knowledge snapshot: {{snapshot}}. Produce a decisive conclusion and a minimal hypothesis test plan now.",
-    "defaults": { "affirmationKey": "{{personal.affirmation_defaults.rooms_watchdog}}" }
+    "defaults": {
+      "affirmationKey": "{{personal.affirmation_defaults.rooms_watchdog}}"
+    }
   },
   "agents": {
     "deepResearch": "Deep Research Agent\n\nMission: Gather and synthesize information from external sources, APIs, and internal data to support decision making.\n\nTools: web search, API calls, database queries, data analysis.\n\nEnvironment Variables:\n  SEARCH_API_KEY=...\n  DATA_SOURCE_URL=...\n\nExample Workflow:\n  1. Receive query.\n  2. Search web for relevant articles.\n  3. Pull data from internal DB.\n  4. Summarize findings.\n  5. Return structured report.\n\n<TRACE> step/action/input/result/check/why/cost … </TRACE>\n<FINAL> commands/code/summary with exact next actions </FINAL>\n<CONFIDENCE>0.00–1.00 + driver</CONFIDENCE>\n<ATTESTATION> hashes, signatures, SBOM URIs </ATTESTATION>\n<EOT>\n",

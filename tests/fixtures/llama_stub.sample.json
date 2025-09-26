@@ -1,8 +1,5 @@
 {
-  "models": [
-    { "id": "stub-model" },
-    { "id": "tiny" }
-  ],
+  "models": [{ "id": "stub-model" }, { "id": "tiny" }],
   "completion_text": "fixture:completion",
   "chat_content": "fixture chat message",
   "completion_status": 200,

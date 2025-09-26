@@ -5,7 +5,13 @@ import http from 'http';
 import request from 'supertest';
 
 import registerRoutes from '../routes/index.js';
-import { log, getTimeoutMs, escapeRe, scanDirectory, makeSnippets } from '../utils.js';
+import {
+  log,
+  getTimeoutMs,
+  escapeRe,
+  scanDirectory,
+  makeSnippets,
+} from '../utils.js';
 import { OLLAMA, MODEL, MOCK, VERBOSE, LOG_BODY } from '../config.js';
 import { getIndex, setIndex } from '../state.js';
 import { getModels } from '../usecases/models.js';
@@ -53,12 +59,18 @@ describe('Projects routes', () => {
 
   it('creates, lists, and toggles project active flag', async () => {
     // Login (use default admin or create a temp user)
-    let login = await agent.post('/auth/login').send({ username: 'admin', password: 'changethis', workspaceId: 'ws-proj' });
+    let login = await agent.post('/auth/login').send({
+      username: 'admin',
+      password: 'changethis',
+      workspaceId: 'ws-proj',
+    });
     if (login.status === 401) {
       const username = `user_${Date.now()}`;
       const password = 'pass-123';
       db.createUser(username, password);
-      login = await agent.post('/auth/login').send({ username, password, workspaceId: 'ws-proj' });
+      login = await agent
+        .post('/auth/login')
+        .send({ username, password, workspaceId: 'ws-proj' });
     }
     expect(login.status).toBe(200);
     const token = login.body.token;
@@ -82,7 +94,9 @@ describe('Projects routes', () => {
     expect(listActive.status).toBe(200);
     expect(listActive.body.ok).toBe(true);
     expect(Array.isArray(listActive.body.items)).toBe(true);
-    expect(listActive.body.items.some(p => p.name === 'alpha' && p.active === true)).toBe(true);
+    expect(
+      listActive.body.items.some((p) => p.name === 'alpha' && p.active === true)
+    ).toBe(true);
 
     // Toggle inactive
     const toggle = await agent
@@ -99,7 +113,11 @@ describe('Projects routes', () => {
       .set('Authorization', `Bearer ${token}`);
     expect(listInactive.status).toBe(200);
     expect(listInactive.body.ok).toBe(true);
-    expect(listInactive.body.items.some(p => p.name === 'alpha' && p.active === false)).toBe(true);
+    expect(
+      listInactive.body.items.some(
+        (p) => p.name === 'alpha' && p.active === false
+      )
+    ).toBe(true);
 
     // All-in-scope list contains it regardless of active flag
     const listAll = await agent
@@ -107,7 +125,7 @@ describe('Projects routes', () => {
       .set('Authorization', `Bearer ${token}`);
     expect(listAll.status).toBe(200);
     expect(listAll.body.ok).toBe(true);
-    expect(listAll.body.items.some(p => p.name === 'alpha')).toBe(true);
+    expect(listAll.body.items.some((p) => p.name === 'alpha')).toBe(true);
 
     // Creating duplicate name should 409
     const dup = await agent

@@ -1,10 +1,10 @@
-applyTo: '**'
----
+## applyTo: '\*\*'
+
 Provide project context and coding guidelines that AI should follow when generating code, answering questions, or reviewing changes.
 
 # Always Remember
 
-You are being queried by **GitHub Copilot (Agent Mode)** inside VS Code. The agent may call **MCP servers** (Model Context Protocol) to access tools and data. MCP lets clients (Copilot) connect to servers that expose **tools**, **resources**, and **prompts**. Tools must be explicitly enabled; the agent should list and use only the tools configured for this workspace.  And always reply to user input in the chat.  Even if they are wrong.  If you have been working for a while check in with the user to ensure you are on the right track.
+You are being queried by **GitHub Copilot (Agent Mode)** inside VS Code. The agent may call **MCP servers** (Model Context Protocol) to access tools and data. MCP lets clients (Copilot) connect to servers that expose **tools**, **resources**, and **prompts**. Tools must be explicitly enabled; the agent should list and use only the tools configured for this workspace. And always reply to user input in the chat. Even if they are wrong. If you have been working for a while check in with the user to ensure you are on the right track.
 
 ## Tool Invocation Grammar (Deterministic)
 
@@ -13,10 +13,11 @@ Prefer natural language, but when precision matters use this command syntax in c
 /tool <server>:<tool> {json}
 
 - <server> = the MCP server id (e.g., github, fetch, fs, pylance, langserver, search)
-- <tool>   = the concrete action exposed by that server (e.g., readFile, writeFile, search, fetch, references, definition, rename)
-- {json}   = parameters required by the tool, strictly valid JSON
+- <tool> = the concrete action exposed by that server (e.g., readFile, writeFile, search, fetch, references, definition, rename)
+- {json} = parameters required by the tool, strictly valid JSON
 
 ### Examples
+
 /tool fs:readFile {"path":"./src/app.ts"}
 /tool fs:writeFile {"path":"./.env","content":"KEY=VALUE\n","overwrite":false}
 /tool fetch:get {"url":"https://example.com/spec.json","headers":{"Accept":"application/json"}}
@@ -154,6 +155,7 @@ If a tool is not available, ask the user to enable the MCP server or add it to *
 # Project Coding Guidelines
 
 ## Language & Style
+
 - JavaScript/TypeScript/Node and Python are primary.
 - Use camelCase for web/JS.
 - No shorthand operators like `??` or `&&` in critical paths; write explicit logic.
@@ -165,22 +167,26 @@ If a tool is not available, ask the user to enable the MCP server or add it to *
 - Logging: structured, level-gated (`debug`, `info`, `warn`, `error`).
 
 ## Security & Secrets
+
 - Never print or commit secrets. Use environment variables or secret stores.
 - On tool calls, redact tokens and headers in any user-visible output.
 - Destructive ops (`writeFile`, mutating APIs) must show a diff/plan first and require explicit confirmation unless the user uses `/force:true`.
 
 ## Testing & Quality
+
 - Follow **pseudocode → final code** flow for non-trivial changes.
 - Require unit tests (Jest/PyTest) for new logic and bug fixes.
 - Enforce type coverage (TS) and strict typing in Python (Pyright types).
 - Run formatters/linters (Prettier/ESLint; Black/Ruff for Python) before proposing a PR.
 
 ## Performance
+
 - Avoid quadratic scans; use indices/caches.
 - Prefer streaming/iterators for large I/O.
 - Annotate complexity in reviews when > O(n log n).
 
 ## Docs & Diffs
+
 - Every change: short rationale + before/after diff.
 - For migrations/scripts: produce **dry-run** output first.
 - Keep READMEs and example envs in sync with changes.
@@ -203,11 +209,11 @@ If a tool is not available, ask the user to enable the MCP server or add it to *
 - In VS Code Copilot Chat → choose **Agent**, open **Select tools**, and enable the configured MCP servers. To add new ones, configure `mcp.json` (VS Code/Visual Studio) and restart the agent session.
 - If you need semantic code tools and don’t see “Pylance” as a server, add a **generic MCP language server** (e.g., `mcp-language-server`) to expose `definition`/`references`/`rename`/`diagnostics` to the agent.
 
-
 ## Quick orientation (what this repo is)
 
 This workspace implements a small local LLM gateway + VS Code extension + indexer and an MCP demo server.
 Key runtime pieces you should know about:
+
 - `gateway/` — Express service (default port 3123) that indexes the workspace (`/scan`), answers `POST /query`, and proxies to an LLM (`/complete`, `/chat`, `/warmup`). See `gateway/server.js`.
 - `extension/` — VS Code extension that provides inline completions and a chat webview. It calls the gateway (default `http://127.0.0.1:3123`). See `extension/src/extension.ts` and `extension/media/chat.html`.
 - `indexer/` — a tiny fast-glob based script used for quick ad-hoc indexing; `indexer/index.js` demonstrates file collection.
@@ -285,30 +291,35 @@ VS Code 1.90+
 Ollama (or another upstream model host) if not using MOCK=1
 
 # sanity checks
+
 node -v
 code --version
 curl -s http://127.0.0.1:11435/api/tags | jq .
 
 Ports & env matrix (at a glance)
-Component	Default	Override env
-Gateway	:3123	PORT, GATEWAY_TIMEOUT_MS, VERBOSE
-Upstream	:11435	OLLAMA (e.g., http://127.0.0.1:11435)
-Model	qwen2.5-coder:7b-instruct	MODEL
+Component Default Override env
+Gateway :3123 PORT, GATEWAY_TIMEOUT_MS, VERBOSE
+Upstream :11435 OLLAMA (e.g., http://127.0.0.1:11435)
+Model qwen2.5-coder:7b-instruct MODEL
 
 In the VS Code devhost, the extension points to the gateway via setting codexz.gatewayUrl or process env OSS_CODEX_GATEWAY used by your extension:devhost script.
 
 Scripts you can copy/paste
+
 # root
-npm run dev                 # gateway + extension watch (if you wired it)
-npm run logs:gateway        # tail gateway log
+
+npm run dev # gateway + extension watch (if you wired it)
+npm run logs:gateway # tail gateway log
 
 # gateway only
+
 npm --prefix gateway run start
 MOCK=1 npm --prefix gateway run start
 MODEL=gemma3:12b npm --prefix gateway run start
 VERBOSE=1 LOG_BODY=1 npm --prefix gateway run start
 
 # extension devhost (new window)
+
 OSS_CODEX_GATEWAY=http://127.0.0.1:3123 npm run extension:devhost
 
 Endpoints (add these two that folks often look for)
@@ -322,71 +333,75 @@ Body: {"model":"qwen2.5-coder:7b-instruct","keepAlive":"2h","timeoutMs":300000}
 → { "ok": true, "load_duration": 123456789 }
 
 Curl flows (cut-and-paste)
+
 # 1) Health
+
 curl -s http://127.0.0.1:3123/health | jq .
 
 # 2) Scan repo
+
 curl -sS -X POST http://127.0.0.1:3123/scan \
-  -H 'content-type: application/json' \
-  -d '{"root":"'$PWD'","maxFileSize":262144}' | jq .
+ -H 'content-type: application/json' \
+ -d '{"root":"'$PWD'","maxFileSize":262144}' | jq .
 
 # 3) Query snippets
+
 curl -sS -X POST http://127.0.0.1:3123/query \
-  -H 'content-type: application/json' \
-  -d '{"q":"entry points OR server.js","k":6}' | jq .
+ -H 'content-type: application/json' \
+ -d '{"q":"entry points OR server.js","k":6}' | jq .
 
 # 4) Chat (plain)
+
 curl -sS -X POST http://127.0.0.1:3123/chat \
-  -H 'content-type: application/json' \
-  -d '{"messages":[{"role":"user","content":"Hello"}]}' | jq .
+ -H 'content-type: application/json' \
+ -d '{"messages":[{"role":"user","content":"Hello"}]}' | jq .
 
 # 5) Chat (pick model + longer timeout)
+
 curl -sS -X POST http://127.0.0.1:3123/chat \
-  -H 'content-type: application/json' \
-  -d '{"model":"qwen2.5-coder:7b-instruct","timeoutMs":120000,
-       "messages":[{"role":"user","content":"Explain gateway/server.js"}]}' | jq .
+ -H 'content-type: application/json' \
+ -d '{"model":"qwen2.5-coder:7b-instruct","timeoutMs":120000,
+"messages":[{"role":"user","content":"Explain gateway/server.js"}]}' | jq .
 
 VS Code devhost helpers (optional but very handy)
 
 .vscode/launch.json
 
 {
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "name": "Run Extension",
-      "type": "extensionHost",
-      "request": "launch",
-      "runtimeExecutable": "code",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}/extension"],
-      "env": {
-        "OSS_CODEX_GATEWAY": "http://127.0.0.1:3123"
-      }
-    }
-  ]
+"version": "0.2.0",
+"configurations": [
+{
+"name": "Run Extension",
+"type": "extensionHost",
+"request": "launch",
+"runtimeExecutable": "code",
+"args": ["--extensionDevelopmentPath=${workspaceFolder}/extension"],
+"env": {
+"OSS_CODEX_GATEWAY": "http://127.0.0.1:3123"
 }
-
+}
+]
+}
 
 .vscode/tasks.json
 
 {
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "gateway:start",
-      "type": "shell",
-      "command": "npm --prefix gateway run start",
-      "problemMatcher": []
-    },
-    {
-      "label": "extension:watch",
-      "type": "shell",
-      "command": "npm --prefix extension run watch",
-      "problemMatcher": []
-    }
-  ]
+"version": "2.0.0",
+"tasks": [
+{
+"label": "gateway:start",
+"type": "shell",
+"command": "npm --prefix gateway run start",
+"problemMatcher": []
+},
+{
+"label": "extension:watch",
+"type": "shell",
+"command": "npm --prefix extension run watch",
+"problemMatcher": []
 }
-
+]
+}
 
 With these, you can “Run Task…” → start gateway & watch, then “Run Extension”.
 
@@ -447,11 +462,15 @@ No auth on endpoints — don’t bind to a public interface.
 Large repos: scan respects ignore lists and size caps; tune maxFileSize in the /scan body.
 
 Packaging & release
+
 # Build extension
+
 npm --prefix extension run build
 
 # Package .vsix
+
 npm --prefix extension run package
+
 # Then: Install via VS Code: Extensions panel → ... → Install from VSIX...
 
 Security & privacy quick note
@@ -463,4 +482,4 @@ Webview CSP is strict: only inline styles and the single nonce’d script, and o
 ALWAYS USE ABSOLUTE PATHS WHEN CALLING TOOLS.
 Never use relative paths like `./file.js` or `../file.js` in tool calls; always use absolute paths from the workspace root like `/src/file.js`. This avoids ambiguity and ensures the agent accesses the correct files regardless of its current working directory.
 
-Keep the user informed on what you are doing especially if you haven't prompted them in a while.  Never be affraid to ask the user for clarification if you are unsure about something or your current path is taking too long.
+Keep the user informed on what you are doing especially if you haven't prompted them in a while. Never be affraid to ask the user for clarification if you are unsure about something or your current path is taking too long.

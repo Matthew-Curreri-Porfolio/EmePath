@@ -38,24 +38,36 @@ describe('DB auth and memory', () => {
     const fetched = getUserByUsername(username);
     expect(fetched).toBeTruthy();
     expect(fetched.username).toBe(username);
-    const res = await request(app).post('/auth/login').send({ username, password, workspaceId: 'ws1' });
+    const res = await request(app)
+      .post('/auth/login')
+      .send({ username, password, workspaceId: 'ws1' });
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('token');
     token = res.body.token;
   });
   it('short term memory CRUD', async () => {
     const content = 'short memory content';
-    const resSet = await request(app).post('/memory/short').set('Authorization', `Bearer ${token}`).send({ content });
+    const resSet = await request(app)
+      .post('/memory/short')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ content });
     expect(resSet.status).toBe(200);
-    const resGet = await request(app).get('/memory/short').set('Authorization', `Bearer ${token}`);
+    const resGet = await request(app)
+      .get('/memory/short')
+      .set('Authorization', `Bearer ${token}`);
     expect(resGet.status).toBe(200);
     expect(resGet.body.content).toBe(content);
   });
   it('long term memory CRUD', async () => {
     const content = 'long memory content';
-    const resSet = await request(app).post('/memory/long').set('Authorization', `Bearer ${token}`).send({ content });
+    const resSet = await request(app)
+      .post('/memory/long')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ content });
     expect(resSet.status).toBe(200);
-    const resGet = await request(app).get('/memory/long').set('Authorization', `Bearer ${token}`);
+    const resGet = await request(app)
+      .get('/memory/long')
+      .set('Authorization', `Bearer ${token}`);
     expect(resGet.status).toBe(200);
     expect(resGet.body.content).toBe(content);
   });

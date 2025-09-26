@@ -5,19 +5,21 @@ function splitSentences(text) {
   return String(text || '')
     .replace(/\s+/g, ' ')
     .split(/(?<=[.!?])\s+(?=[A-Z(\d])/)
-    .map(s => s.trim())
+    .map((s) => s.trim())
     .filter(Boolean);
 }
 
 function findDates(text) {
-  const re = /\b(\d{4}-\d{2}-\d{2}|\d{4}-\d{2}|\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}|\d{4})\b/gi;
+  const re =
+    /\b(\d{4}-\d{2}-\d{2}|\d{4}-\d{2}|\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}|\d{4})\b/gi;
   const out = new Set();
   for (const m of text.matchAll(re)) out.add(m[0]);
   return [...out];
 }
 
 function findNumbers(text) {
-  const re = /\b(?:[-+]?\d{1,3}(?:,\d{3})*(?:\.\d+)?|[-+]?\d*\.\d+|\d+)\b(?:%|\s*(million|billion|k|M|B))?/gi;
+  const re =
+    /\b(?:[-+]?\d{1,3}(?:,\d{3})*(?:\.\d+)?|[-+]?\d*\.\d+|\d+)\b(?:%|\s*(million|billion|k|M|B))?/gi;
   const out = [];
   for (const m of text.matchAll(re)) out.push(m[0]);
   return out.slice(0, 200);
@@ -30,7 +32,7 @@ function findEntities(text) {
   const reAcr = /\b([A-Z]{2,6})\b/g;
   for (const m of text.matchAll(reCapSeq)) ents.add(m[1]);
   for (const m of text.matchAll(reAcr)) ents.add(m[1]);
-  return [...ents].filter(s => s.length >= 2 && s.length <= 64).slice(0, 200);
+  return [...ents].filter((s) => s.length >= 2 && s.length <= 64).slice(0, 200);
 }
 
 function keyPhrases(sent) {
@@ -51,7 +53,12 @@ function keyPhrases(sent) {
 function extractClaims(sentences) {
   const claims = [];
   for (const s of sentences) {
-    const conf = /\b(we (find|show|demonstrate)|results? (show|suggest)|study (finds|shows)|data (indicates|suggests))\b/i.test(s) ? 0.8 : 0.5;
+    const conf =
+      /\b(we (find|show|demonstrate)|results? (show|suggest)|study (finds|shows)|data (indicates|suggests))\b/i.test(
+        s
+      )
+        ? 0.8
+        : 0.5;
     if (s.length > 20) claims.push({ text: s, confidence: conf });
   }
   return claims.slice(0, 200);
@@ -62,7 +69,8 @@ function findCitations(text) {
   // URLs
   for (const m of text.matchAll(/https?:\/\/[^\s)]+/gi)) out.add(m[0]);
   // DOIs
-  for (const m of text.matchAll(/\b10\.\d{4,9}\/[-._;()\/:A-Z0-9]+/gi)) out.add(`doi:${m[0]}`);
+  for (const m of text.matchAll(/\b10\.\d{4,9}\/[-._;()\/:A-Z0-9]+/gi))
+    out.add(`doi:${m[0]}`);
   return [...out].slice(0, 200);
 }
 
@@ -75,18 +83,28 @@ function findSections(text) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (headerRe.test(line)) {
-      if (current.content.length) sections.push({ ...current, content: current.content.join('\n') });
+      if (current.content.length)
+        sections.push({ ...current, content: current.content.join('\n') });
       const title = line.replace(/^#{1,6}\s+/, '').trim();
       current = { title, start: i, content: [] };
     } else {
       current.content.push(lines[i]);
     }
   }
-  if (current.content.length) sections.push({ ...current, content: current.content.join('\n') });
-  return sections.map((s, idx) => ({ id: `sec${idx + 1}`, title: s.title, startLine: s.start, body: s.content }));
+  if (current.content.length)
+    sections.push({ ...current, content: current.content.join('\n') });
+  return sections.map((s, idx) => ({
+    id: `sec${idx + 1}`,
+    title: s.title,
+    startLine: s.start,
+    body: s.content,
+  }));
 }
 
-export function extractDimensionalMarkup(text, { source, title, lang = 'en' } = {}) {
+export function extractDimensionalMarkup(
+  text,
+  { source, title, lang = 'en' } = {}
+) {
   const sentences = splitSentences(text);
   const dates = findDates(text);
   const numbers = findNumbers(text);
@@ -99,7 +117,7 @@ export function extractDimensionalMarkup(text, { source, title, lang = 'en' } = 
   const rels = [];
   const entsTop = new Set(entities.slice(0, 25));
   for (const s of sentences.slice(0, 200)) {
-    const present = [...entsTop].filter(e => s.includes(e));
+    const present = [...entsTop].filter((e) => s.includes(e));
     for (let i = 0; i < Math.min(5, present.length); i++) {
       for (let j = i + 1; j < Math.min(5, present.length); j++) {
         rels.push({ a: present[i], b: present[j], context: s });
@@ -117,9 +135,13 @@ export function extractDimensionalMarkup(text, { source, title, lang = 'en' } = 
   }));
 
   // Training-ready tasks: Q/A style prompts derived from claims and facts
-  const qa = facts.slice(0, 30).map(f => ({
+  const qa = facts.slice(0, 30).map((f) => ({
     prompt: `Extract facts from: ${f.sentence}`,
-    completion: JSON.stringify({ phrases: f.phrases, numbers: f.numbers, dates: f.dates })
+    completion: JSON.stringify({
+      phrases: f.phrases,
+      numbers: f.numbers,
+      dates: f.dates,
+    }),
   }));
 
   return {
@@ -140,7 +162,7 @@ export function extractDimensionalMarkup(text, { source, title, lang = 'en' } = 
     relations: rels,
     claims,
     facts,
-    training: { qa }
+    training: { qa },
   };
 }
 

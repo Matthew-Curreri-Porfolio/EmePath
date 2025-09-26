@@ -3,13 +3,16 @@
 // and/or local indexed files. Produces JSON with key points, pros/cons, entities,
 // topics, controversies, consensus, and source attributions.
 
-import { researchWeb } from "./research.js";
-import { makeSnippets } from "../utils.js";
-import { chat as llmChat } from "../lib/llm.js";
-import { composeSystem } from "../prompts/compose.js";
+import { researchWeb } from './research.js';
+import { makeSnippets } from '../utils.js';
+import { chat as llmChat } from '../lib/llm.js';
+import { composeSystem } from '../prompts/compose.js';
 
 function stripTags(html) {
-  return String(html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return String(html || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function pickLocalHits(index, query, k = 5) {
@@ -23,7 +26,7 @@ function pickLocalHits(index, query, k = 5) {
 
   const scored = [];
   for (const f of files) {
-    const text = (f && f.text) || "";
+    const text = (f && f.text) || '';
     if (!text) continue;
     let score = 0;
     const lower = text.toLowerCase();
@@ -56,9 +59,17 @@ function buildEvidenceBlocks({ web, local }, { maxContextChars = 20000 } = {}) {
       if (!item?.page?.ok) continue;
       const id = `W${++w}`;
       const title = item.page.title || item.title || item.url;
-      const content = String(item.page.content || "").slice(0, Math.max(2000, Math.floor(maxContextChars / 4)));
+      const content = String(item.page.content || '').slice(
+        0,
+        Math.max(2000, Math.floor(maxContextChars / 4))
+      );
       blocks.push(`[${id}] ${title}\n${content}`);
-      sources.push({ id, title, url: item.url, snippet: stripTags(item.page.description || item.snippet || "") });
+      sources.push({
+        id,
+        title,
+        url: item.url,
+        snippet: stripTags(item.page.description || item.snippet || ''),
+      });
     }
   }
 
@@ -67,15 +78,20 @@ function buildEvidenceBlocks({ web, local }, { maxContextChars = 20000 } = {}) {
     for (const hit of local) {
       const id = `L${++l}`;
       const title = hit.path;
-      const content = (hit.snippets || []).join("\n...") || "";
+      const content = (hit.snippets || []).join('\n...') || '';
       if (!content) continue;
       blocks.push(`[${id}] ${title}\n${content}`);
-      sources.push({ id, title, path: hit.path, snippet: content.slice(0, 240) });
+      sources.push({
+        id,
+        title,
+        path: hit.path,
+        snippet: content.slice(0, 240),
+      });
     }
   }
 
   // Truncate global evidence softly by clipping each block if oversized
-  let total = blocks.map(b => b.length).reduce((a, b) => a + b, 0);
+  let total = blocks.map((b) => b.length).reduce((a, b) => a + b, 0);
   if (total > maxContextChars && blocks.length) {
     const ratio = maxContextChars / total;
     for (let i = 0; i < blocks.length; i++) {
@@ -85,20 +101,21 @@ function buildEvidenceBlocks({ web, local }, { maxContextChars = 20000 } = {}) {
     }
   }
 
-  return { text: blocks.join("\n\n"), sources };
+  return { text: blocks.join('\n\n'), sources };
 }
 
 function buildPrompt({ query, compare = [] }, evidenceText) {
-  const compareNote = Array.isArray(compare) && compare.length
-    ? `\n\nWhen relevant, include a comparison section across entities: ${compare.join(", ")}.`
-    : "";
+  const compareNote =
+    Array.isArray(compare) && compare.length
+      ? `\n\nWhen relevant, include a comparison section across entities: ${compare.join(', ')}.`
+      : '';
 
   const sys = composeSystem('insights.system');
 
   const usr = `USER QUESTION:\n${query}${compareNote}\n\nEVIDENCE:\n${evidenceText}`;
   const messages = [
-    { role: "system", content: sys },
-    { role: "user", content: usr },
+    { role: 'system', content: sys },
+    { role: 'user', content: usr },
   ];
   return messages;
 }
@@ -106,13 +123,13 @@ function buildPrompt({ query, compare = [] }, evidenceText) {
 export async function insightsEngine(
   query,
   {
-    mode = "web", // 'web' | 'local' | 'hybrid'
+    mode = 'web', // 'web' | 'local' | 'hybrid'
     base,
     num = 6,
     fetchNum = 4,
     concurrency = 3,
     site,
-    lang = "en",
+    lang = 'en',
     safe = false,
     fresh,
     localIndex, // { files: [{path,text}, ...] }
@@ -123,13 +140,23 @@ export async function insightsEngine(
     signal,
   } = {}
 ) {
-  const useWeb = mode === "web" || mode === "hybrid";
-  const useLocal = mode === "local" || mode === "hybrid";
+  const useWeb = mode === 'web' || mode === 'hybrid';
+  const useLocal = mode === 'local' || mode === 'hybrid';
 
   // Discover web results (enriched via researchWeb)
   let webEnriched = [];
   if (useWeb) {
-    const rr = await researchWeb(query, { base, num, fetchNum, concurrency, site, lang, safe, fresh, signal });
+    const rr = await researchWeb(query, {
+      base,
+      num,
+      fetchNum,
+      concurrency,
+      site,
+      lang,
+      safe,
+      fresh,
+      signal,
+    });
     if (rr && rr.ok) webEnriched = Array.isArray(rr.results) ? rr.results : [];
   }
 
@@ -140,24 +167,32 @@ export async function insightsEngine(
   }
 
   if (!webEnriched.length && !localHits.length) {
-    return { ok: false, error: "no_context" };
+    return { ok: false, error: 'no_context' };
   }
 
-  const { text: evidence, sources } = buildEvidenceBlocks({ web: webEnriched, local: localHits }, { maxContextChars });
+  const { text: evidence, sources } = buildEvidenceBlocks(
+    { web: webEnriched, local: localHits },
+    { maxContextChars }
+  );
   const messages = buildPrompt({ query, compare }, evidence);
 
   try {
-    const r = await llmChat({ messages, temperature: 0.2, maxTokens: maxAnswerTokens, timeoutMs: 60000 });
+    const r = await llmChat({
+      messages,
+      temperature: 0.2,
+      maxTokens: maxAnswerTokens,
+      timeoutMs: 60000,
+    });
     let insights;
     try {
-      insights = JSON.parse(r?.content || "{}");
+      insights = JSON.parse(r?.content || '{}');
     } catch (_) {
       // If model returned non-JSON, wrap as text fallback
-      insights = { summary: String(r?.content || "").trim() };
+      insights = { summary: String(r?.content || '').trim() };
     }
     return { ok: true, query, mode, insights, sources };
   } catch (e) {
-    return { ok: false, error: String(e && e.message || e) };
+    return { ok: false, error: String((e && e.message) || e) };
   }
 }
 

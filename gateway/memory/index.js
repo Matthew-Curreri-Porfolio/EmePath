@@ -5,7 +5,8 @@ import * as RAX1 from './encoders/rax1.js';
 
 function ensureDialect(dialect) {
   const d = (dialect || 'sqlite').toLowerCase();
-  if (!['sqlite', 'postgres'].includes(d)) throw new Error('Unsupported dialect');
+  if (!['sqlite', 'postgres'].includes(d))
+    throw new Error('Unsupported dialect');
   return d;
 }
 
@@ -60,7 +61,10 @@ export function createMemory({ db, dialect = 'sqlite', encoder = RAX1 } = {}) {
       bytes = bufferFrom(enc.bytes);
     }
     const sql = upsertSQL(t);
-    const params = d === 'sqlite' ? [userId, workspaceId, content, bytes] : [userId, workspaceId, content, bytes];
+    const params =
+      d === 'sqlite'
+        ? [userId, workspaceId, content, bytes]
+        : [userId, workspaceId, content, bytes];
     if (typeof db.run === 'function') {
       await db.run(sql, params);
     } else if (typeof db.query === 'function') {
@@ -75,7 +79,8 @@ export function createMemory({ db, dialect = 'sqlite', encoder = RAX1 } = {}) {
     const { type, userId, workspaceId } = scope;
     const t = tableName(type);
     const sql = selectSQL(t);
-    const params = d === 'sqlite' ? [userId, workspaceId] : [userId, workspaceId];
+    const params =
+      d === 'sqlite' ? [userId, workspaceId] : [userId, workspaceId];
     let row;
     if (typeof db.get === 'function') {
       row = await db.get(sql, params);
@@ -87,7 +92,9 @@ export function createMemory({ db, dialect = 'sqlite', encoder = RAX1 } = {}) {
     }
     if (!row) return { state: {}, snapshot: null };
     let state = {};
-    try { state = JSON.parse(row.content || '{}'); } catch {}
+    try {
+      state = JSON.parse(row.content || '{}');
+    } catch {}
 
     let decoded = null;
     const bytes = row.working_tokens && Buffer.from(row.working_tokens);
@@ -95,14 +102,19 @@ export function createMemory({ db, dialect = 'sqlite', encoder = RAX1 } = {}) {
       const out = await encoder.decode(new Uint8Array(bytes));
       decoded = out;
     }
-    return { state, snapshot: bytes ? { bytes: new Uint8Array(bytes), meta: null } : null, decoded };
+    return {
+      state,
+      snapshot: bytes ? { bytes: new Uint8Array(bytes), meta: null } : null,
+      decoded,
+    };
   }
 
   async function handoffSnapshot(scope) {
     const { type, userId, workspaceId } = scope;
     const t = tableName(type);
     const sql = selectSQL(t);
-    const params = d === 'sqlite' ? [userId, workspaceId] : [userId, workspaceId];
+    const params =
+      d === 'sqlite' ? [userId, workspaceId] : [userId, workspaceId];
     let row;
     if (typeof db.get === 'function') {
       row = await db.get(sql, params);
@@ -123,7 +135,10 @@ export function createMemory({ db, dialect = 'sqlite', encoder = RAX1 } = {}) {
     const sql = upsertSQL(t);
     const emptyContent = serializeState({});
     const bytes = bufferFrom(snapshot?.bytes);
-    const params = d === 'sqlite' ? [userId, workspaceId, emptyContent, bytes] : [userId, workspaceId, emptyContent, bytes];
+    const params =
+      d === 'sqlite'
+        ? [userId, workspaceId, emptyContent, bytes]
+        : [userId, workspaceId, emptyContent, bytes];
     if (typeof db.run === 'function') {
       await db.run(sql, params);
     } else if (typeof db.query === 'function') {

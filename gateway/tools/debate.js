@@ -1,15 +1,27 @@
 // gateway/tools/debate.js
 // Multi-agent debate over grounded evidence (web/local/hybrid), emitting structured JSON.
 
-import { chat as llmChat } from "../lib/llm.js";
-import { insightsEngine } from "./insights.js";
-import { composeSystem } from "../prompts/compose.js";
+import { chat as llmChat } from '../lib/llm.js';
+import { insightsEngine } from './insights.js';
+import { composeSystem } from '../prompts/compose.js';
 
-function buildDebatePrompt(question, evidenceText, { rounds=2, trace=false } = {}) {
-  const trace_schema = trace ? '\\"trace\\": [{\\"role\\":\\"Pro|Con|Critic|Judge\\",\\"content\\":string}]' : '\\"trace\\": []';
-  const sys = composeSystem('debate.system', { rounds: String(rounds), trace_schema });
+function buildDebatePrompt(
+  question,
+  evidenceText,
+  { rounds = 2, trace = false } = {}
+) {
+  const trace_schema = trace
+    ? '\\"trace\\": [{\\"role\\":\\"Pro|Con|Critic|Judge\\",\\"content\\":string}]'
+    : '\\"trace\\": []';
+  const sys = composeSystem('debate.system', {
+    rounds: String(rounds),
+    trace_schema,
+  });
   const usr = `QUESTION: ${question}\n\nEVIDENCE:\n${evidenceText}`;
-  return [ { role:'system', content: sys }, { role:'user', content: usr } ];
+  return [
+    { role: 'system', content: sys },
+    { role: 'user', content: usr },
+  ];
 }
 
 export async function debateEngine(
@@ -24,13 +36,13 @@ export async function debateEngine(
     fetchNum = 4,
     concurrency = 3,
     site,
-    lang='en',
-    safe=false,
+    lang = 'en',
+    safe = false,
     fresh,
     localIndex,
-    localK=6,
-    maxContextChars=22000,
-    maxAnswerTokens=900,
+    localK = 6,
+    maxContextChars = 22000,
+    maxAnswerTokens = 900,
     signal,
   } = {}
 ) {
@@ -38,7 +50,22 @@ export async function debateEngine(
   let evidenceText = '';
   let sources = [];
   if (useInsights) {
-    const ir = await insightsEngine(query, { mode, base, num, fetchNum, concurrency, site, lang, safe, fresh, localIndex, localK, maxContextChars, maxAnswerTokens: 500, signal });
+    const ir = await insightsEngine(query, {
+      mode,
+      base,
+      num,
+      fetchNum,
+      concurrency,
+      site,
+      lang,
+      safe,
+      fresh,
+      localIndex,
+      localK,
+      maxContextChars,
+      maxAnswerTokens: 500,
+      signal,
+    });
     if (ir && ir.ok) {
       // Rebuild evidence text from insights sources to keep grounding lean
       const blocks = [];
@@ -51,16 +78,25 @@ export async function debateEngine(
       sources = ir.sources || [];
     }
   }
-  if (!evidenceText) return { ok:false, error:'no_context' };
+  if (!evidenceText) return { ok: false, error: 'no_context' };
 
   const messages = buildDebatePrompt(query, evidenceText, { rounds, trace });
   try {
-    const r = await llmChat({ messages, temperature: 0.2, maxTokens: maxAnswerTokens, timeoutMs: 60000 });
+    const r = await llmChat({
+      messages,
+      temperature: 0.2,
+      maxTokens: maxAnswerTokens,
+      timeoutMs: 60000,
+    });
     let debate;
-    try { debate = JSON.parse(r?.content || '{}'); } catch { debate = { summary: String(r?.content||'').trim() } }
-    return { ok:true, query, mode, debate, sources };
+    try {
+      debate = JSON.parse(r?.content || '{}');
+    } catch {
+      debate = { summary: String(r?.content || '').trim() };
+    }
+    return { ok: true, query, mode, debate, sources };
   } catch (e) {
-    return { ok:false, error:String(e && e.message || e) };
+    return { ok: false, error: String((e && e.message) || e) };
   }
 }
 

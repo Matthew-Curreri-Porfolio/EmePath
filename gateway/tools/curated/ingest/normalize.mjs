@@ -1,6 +1,17 @@
 import { stripTags } from './util.mjs';
 
-export function toDoc({ url, source, title, html, text, summary, published_at, lang, license, tags }) {
+export function toDoc({
+  url,
+  source,
+  title,
+  html,
+  text,
+  summary,
+  published_at,
+  lang,
+  license,
+  tags,
+}) {
   const body = text || stripTags(html || '');
   return {
     id: `${source}:${url}`,
@@ -15,4 +26,3 @@ export function toDoc({ url, source, title, html, text, summary, published_at, l
     tags: tags || [],
   };
 }
-

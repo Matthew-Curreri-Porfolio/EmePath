@@ -5,17 +5,21 @@
 // { "tool":"runtime.start","method":"POST","endpoint":"/runtime/llama/start","params":{...},"body":{...} }
 
 export function registerToolCall(app /*, deps */) {
-  app.post("/toolcall", async (req, res) => {
+  app.post('/toolcall', async (req, res) => {
     try {
       const data = req.body || {};
-      const method = String(data.method || "GET").toUpperCase();
-      const endpoint = String(data.endpoint || "");
+      const method = String(data.method || 'GET').toUpperCase();
+      const endpoint = String(data.endpoint || '');
 
-      if (!endpoint || !endpoint.startsWith("/")) {
-        return res.status(400).json({ ok:false, error:"endpoint must start with '/'" });
+      if (!endpoint || !endpoint.startsWith('/')) {
+        return res
+          .status(400)
+          .json({ ok: false, error: "endpoint must start with '/'" });
       }
-      if (!["GET","POST","DELETE"].includes(method)) {
-        return res.status(400).json({ ok:false, error:"method must be GET|POST|DELETE" });
+      if (!['GET', 'POST', 'DELETE'].includes(method)) {
+        return res
+          .status(400)
+          .json({ ok: false, error: 'method must be GET|POST|DELETE' });
       }
 
       // Build URL against THIS gateway (no external calls)
@@ -23,22 +27,30 @@ export function registerToolCall(app /*, deps */) {
       const base = `http://127.0.0.1:${port}`;
       const url = new URL(endpoint, base);
 
-      const params = data.params && typeof data.params === 'object' ? data.params : undefined;
-      if (params && method === "GET") {
-        for (const [k,v] of Object.entries(params)) url.searchParams.append(k, String(v));
+      const params =
+        data.params && typeof data.params === 'object'
+          ? data.params
+          : undefined;
+      if (params && method === 'GET') {
+        for (const [k, v] of Object.entries(params))
+          url.searchParams.append(k, String(v));
       }
 
       const init = {
         method,
-        headers: { "content-type":"application/json" },
-        signal: AbortSignal.timeout(20000)
+        headers: { 'content-type': 'application/json' },
+        signal: AbortSignal.timeout(20000),
       };
-      if (method !== "GET") init.body = JSON.stringify(data.body || {});
+      if (method !== 'GET') init.body = JSON.stringify(data.body || {});
 
       const r = await fetch(url, init);
       const text = await r.text();
       let payload;
-      try { payload = JSON.parse(text); } catch { payload = { raw:text }; }
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        payload = { raw: text };
+      }
 
       return res.status(r.ok ? 200 : 502).json({
         ok: r.ok,
@@ -47,10 +59,12 @@ export function registerToolCall(app /*, deps */) {
         method,
         endpoint,
         forwarded: true,
-        result: payload
+        result: payload,
       });
     } catch (e) {
-      return res.status(500).json({ ok:false, error: String(e && e.message || e) });
+      return res
+        .status(500)
+        .json({ ok: false, error: String((e && e.message) || e) });
     }
   });
 }
