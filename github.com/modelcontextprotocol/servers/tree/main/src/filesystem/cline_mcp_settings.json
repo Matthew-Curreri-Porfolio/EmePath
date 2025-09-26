@@ -6,7 +6,7 @@
         "build/index.js"
       ],
       "env": {
-        "ALLOWED_DIRECTORIES": "/oss-codex"
+        "ALLOWED_DIRECTORIES": "/EmePath"
       }
     },
     "new_server": {
@@ -15,7 +15,7 @@
         "build/index.js"
       ],
       "env": {
-        "ALLOWED_DIRECTORIES": "/oss-codex"
+        "ALLOWED_DIRECTORIES": "/EmePath"
       }
     }
   }

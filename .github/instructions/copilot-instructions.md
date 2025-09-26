@@ -18,10 +18,10 @@
        - "Run Node repro for parser"
        Mark the first item in-progress.
 
-    2. ENUMERATE — list_dir("/oss-codex/gateway/tools"), list_dir("/oss-codex/gateway/routes")
+    2. ENUMERATE — list_dir("/EmePath/gateway/tools"), list_dir("/EmePath/gateway/routes")
 
-    3. READ — read_file("/oss-codex/gateway/tools/action/whoogle.js", 1, 400)
-             read_file("/oss-codex/gateway/routes/index.js", 1, 240)
+    3. READ — read_file("/EmePath/gateway/tools/action/whoogle.js", 1, 400)
+             read_file("/EmePath/gateway/routes/index.js", 1, 240)
 
     4. PROBE HTML — run_in_terminal:
        - curl -sS -D - ${WHOOGLE_BASE}/ -o /tmp/whoogle_root.html

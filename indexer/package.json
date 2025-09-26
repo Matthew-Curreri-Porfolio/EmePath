@@ -1,11 +1,11 @@
 {
-  "name": "oss-codex-indexer",
+  "name": "EmePath-indexer",
   "version": "0.1.0",
   "description": "Repository indexer (files, embeddings-ready chunks, symbol hints) for Codexz.",
   "type": "module",
   "main": "index.js",
   "bin": {
-    "oss-codex-index": "./index.js"
+    "EmePath-index": "./index.js"
   },
   "scripts": {
     "dev": "nodemon --ext js --watch . index.js",

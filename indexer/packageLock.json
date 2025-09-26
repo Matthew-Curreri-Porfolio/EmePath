@@ -1,18 +1,18 @@
 {
-  "name": "oss-codex-indexer",
+  "name": "EmePath-indexer",
   "version": "0.1.0",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
-      "name": "oss-codex-indexer",
+      "name": "EmePath-indexer",
       "version": "0.1.0",
       "license": "Apache-2.0",
       "dependencies": {
         "fast-glob": "^3.3.2"
       },
       "bin": {
-        "oss-codex-index": "index.js"
+        "EmePath-index": "index.js"
       },
       "devDependencies": {
         "eslint": "^9.9.0",
