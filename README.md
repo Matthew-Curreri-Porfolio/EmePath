@@ -12,7 +12,7 @@ This repo hosts the local inference gateway, prompt system, and supporting tools
 npm ci
 ```
 
-3. Start the local stack (llama.cpp server, Ollama‑compatible proxy, gateway; reuses running services):
+3. Start the local stack (Python LoRA server + gateway; reuses running services):
 
 ```
 npm start
@@ -22,7 +22,8 @@ npm start
 
 ```
 curl -s http://127.0.0.1:3123/health
-curl -s http://127.0.0.1:8088/v1/models
+curl -s http://127.0.0.1:3123/ready
+curl -s http://127.0.0.1:8000/models
 ```
 
 Streaming feedback docs (chat and warmup): see `gateway/README.md` under “Streaming Feedback”.
@@ -43,9 +44,9 @@ Configuration is merged from:
 
 Key knobs:
 
-- Ports: `LLAMACPP_PORT`, `OLLAMA_PROXY_PORT`, `GATEWAY_PORT`
+- Ports: `LORA_SERVER_PORT`, `GATEWAY_PORT`
 - Search: `SEARXNG_BASE` (e.g., `http://127.0.0.1:8888`)
-- Models: `MODEL_SEARCH_ROOTS`, `LLAMA_MODEL_REF`, `LLAMA_MODEL_PATH`
+- Models: `LORA_MODEL_NAME`, `LORA_MODEL_PATH`
 - Prompts: `PROMPT_INCLUDE_POLICY`, `PROMPT_INCLUDE_PERSONAL`, `PROMPT_PERSONAL_INDEX`, `PROMPT_PERSONAL_RANDOM`, `MATT`, `ROOT`, `SYSTEM`
 
 Example local override (`gateway/config/local.json`):
@@ -56,7 +57,7 @@ Example local override (`gateway/config/local.json`):
   "searxng": { "base": "http://127.0.0.1:8888" },
   "models": { "favorites": ["library/qwen3/8b"] },
   "prompts": { "includePolicy": true, "includePersonal": true, "personalIndex": 2 },
-  "runtime": { "keepLlamaOnExit": true }
+  "runtime": {}
 }
 ```
 
@@ -74,4 +75,4 @@ curl "http://127.0.0.1:3123/prompts/preview?key=plan.system&envOs=linux"
 
 ### CI
 
-GitHub Actions workflow runs `npm ci`, a lightweight stack check, and `vitest` tests. The check mode skips heavy llama checks on hosted runners.
+GitHub Actions workflow runs `npm ci`, a lightweight stack check, and `vitest` tests.

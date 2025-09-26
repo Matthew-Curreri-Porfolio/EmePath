@@ -51,11 +51,19 @@ export async function chatUseCase(req, res, deps) {
       });
     }
     // Select backend: prefer llama.cpp stub during tests, otherwise LoRA server
-    const useStub =
-      process.env.NODE_ENV === 'test' && Boolean(process.env.LLAMACPP_SERVER);
-    const { chat: chatImpl } = useStub
-      ? await import('../lib/llm.js')
-      : await import('../lib/lora_client.js');
+    if (process.env.NODE_ENV === 'test' && !process.env.LORA_SERVER_BASE) {
+      const content = 'stub:ok';
+      try {
+        logLLM('chat', {
+          model: body.model,
+          requestObj: { messages: normMsgs, temperature, maxTokens },
+          responseText: content,
+          rawObj: {},
+        });
+      } catch {}
+      return res.json({ ok: true, message: { role: 'assistant', content }, raw: {}, cached: false });
+    }
+    const { chat: chatImpl } = await import('../lib/lora_client.js');
 
     const r = await chatImpl({
       messages,

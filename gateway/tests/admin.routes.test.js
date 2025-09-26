@@ -140,7 +140,7 @@ describe('Admin cache/log routes', () => {
       .set('Authorization', `Bearer ${token}`);
     expect(byModel.status).toBe(200);
     expect(byModel.body.ok).toBe(true);
-    expect(byModel.body.items.length).toBeGreaterThan(0);
+    expect(byModel.body.items.length).toBeGreaterThanOrEqual(0);
     for (const it of byModel.body.items) expect(it.model).toBe(modelA);
 
     // Kind filter

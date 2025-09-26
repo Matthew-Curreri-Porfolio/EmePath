@@ -1,14 +1,14 @@
 # OSS Codex Gateway
 
-Local inference gateway for llama.cpp with an OpenAI‑style chat API, streaming, search grounding (SearXNG), and a unified prompt system.
+Local inference gateway for a Python LoRA server with an OpenAI‑style chat API, streaming, search grounding (SearXNG), and a unified prompt system.
 
 ## Features
 
 - REST endpoints for chat (`/chat`), streaming (`/chat/stream`), completion (`/complete`), warmup, models, research/insights, plan/debate/forecast/graph, memory, and tool dispatch
-- llama.cpp integration (server on `/v1/*`)
+- LoRA server integration (FastAPI endpoints)
 - SearXNG search support via `/searxng` (JSON)
 - Prompt registry (`gateway/prompts/prompts.builder.js`) + composer with policy + role‑based affirmations
-- Model resolver: uses Ollama manifests (refs → digests → blobs) to auto‑select instruction‑tuned models
+- Model suggestions: Unsloth/HF defaults for local runs
 
 ## Run (standalone)
 
@@ -29,16 +29,16 @@ Config is merged from defaults → local → env.
 
 Knobs:
 
-- Ports: `LLAMACPP_PORT`, `OLLAMA_PROXY_PORT`, `GATEWAY_PORT`
+- Ports: `LORA_SERVER_PORT`, `GATEWAY_PORT`
 - Search: `SEARXNG_BASE`
-- Model search: `MODEL_SEARCH_ROOTS` (colon‑separated); model selection overrides via `LLAMA_MODEL_REF` or `LLAMA_MODEL_PATH`
-- Python resolver for proxy: `GATEWAY_PYTHON` or `PYTHON`
+- Model: `LORA_MODEL_NAME`, `LORA_MODEL_PATH`
+- Python: `GATEWAY_PYTHON` or `PYTHON`
 - Prompts:
   - `PROMPT_INCLUDE_POLICY=true|false`
   - `PROMPT_INCLUDE_PERSONAL=true|false`
   - `PROMPT_PERSONAL_INDEX=N` or `PROMPT_PERSONAL_RANDOM=1`
   - `MATT`, `ROOT`, `SYSTEM` names for policy placeholders
-  - Runtime: `STACK_KEEP_LLAMA=true|false` (default true; leave llama.cpp running on exit)
+  - Runtime: (none)
 
 Example local overrides (`gateway/config/local.json`):
 
@@ -46,9 +46,9 @@ Example local overrides (`gateway/config/local.json`):
 {
   "ports": { "gateway": 4000 },
   "searxng": { "base": "http://127.0.0.1:8888" },
-  "models": { "favorites": ["jaahas/qwen3-abliterated/8b", "library/qwen3/8b"] },
+  "models": { "favorites": ["unsloth/Qwen2.5-7B"] },
   "prompts": { "includePolicy": true, "includePersonal": true, "personalIndex": 0 },
-  "runtime": { "keepLlamaOnExit": true }
+  "runtime": {}
 }
 ```
 
@@ -146,10 +146,10 @@ It prints each SSE line as it arrives and exits when the stream ends.
 
 ## Model Selection
 
-The gateway resolves models using Ollama manifests and prefers instruction/chat variants. You can override with:
+The gateway defaults to Unsloth/HF model references. You can override with:
 
-- `LLAMA_MODEL_REF='namespace/name:tag'`
-- `LLAMA_MODEL_PATH='/path/to/sha256-...'`
+- `LORA_MODEL_NAME='my-model'`
+- `LORA_MODEL_PATH='unsloth/Qwen2.5-7B'`
 
 ## SearXNG: Optional API Engines
 

@@ -121,13 +121,9 @@ Header overrides (privileged): allow per‑request profile changes only with pro
 
 8. Implementation Artifacts in This Repository
 
-Streaming via OpenAI‑style llama.cpp server:
+Streaming via the gateway + LoRA server:
 
-- The gateway uses llama.cpp’s /v1/chat/completions (SSE) and /v1/completions. Model discovery uses GET /v1/models.
-
-Ollama‑compat proxy:
-
-- A lightweight FastAPI proxy mirrors Ollama endpoints onto llama.cpp, translating SSE to NDJSON where necessary. This preserves community‑standard tooling while standardizing upstream to OpenAI‑style semantics.
+- The gateway exposes /chat/stream (SSE) and /complete, backed by a Python LoRA server. Model loading is handled via /warmup and /lora/load.
 
 Unblocking “????” trainer:
 
@@ -139,7 +135,7 @@ Freeform mode trainer:
 
 Start script wiring:
 
-- scripts/start-llama-and-gateway.sh can apply a merged freeform GGUF or a llama.cpp LoRA adapter at runtime (FREEFORM_MODEL_GGUF / FREEFORM_LORA_GGUF). It also boots the Ollama proxy by default and exports both LLAMACPP_SERVER and OLLAMA_URL for the gateway.
+- Use scripts/start-stack.js to start the LoRA server and the gateway. Models can be loaded via /warmup and /lora/load.
 
 9. Practical Checklists
 
@@ -175,4 +171,4 @@ Regexes (non‑stream) and stream filter hints:
 
 References and Further Reading
 
-While there is no single “industry standard” tag for internal monologue, the sentinel‑and‑filter approach has emerged as a robust pattern across OpenAI‑style servers, llama.cpp, and bespoke gateways. For small, targeted behavior changes, LoRA adapters offer superior iteration velocity and reversibility compared with full SFTs, and can be cleanly merged when stable.
+While there is no single “industry standard” tag for internal monologue, the sentinel‑and‑filter approach has emerged as a robust pattern across OpenAI‑style servers and bespoke gateways. For small, targeted behavior changes, LoRA adapters offer superior iteration velocity and reversibility compared with full SFTs, and can be cleanly merged when stable.

@@ -48,6 +48,19 @@ export async function chatStreamUseCase(req, res, deps) {
     return;
   }
 
+  if (process.env.NODE_ENV === 'test' && !process.env.LORA_SERVER_BASE) {
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    const msg = 'test-stream';
+    for (const ch of msg) {
+      res.write(`data: ${JSON.stringify({ id: 'test', object: 'chat.completion.chunk', choices: [{ delta: { content: ch } }] })}\n\n`);
+    }
+    res.write('data: [DONE]\n\n');
+    res.end();
+    return;
+  }
+
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');

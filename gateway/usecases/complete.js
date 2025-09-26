@@ -43,11 +43,19 @@ export async function completeUseCase(req, res, deps) {
         cached: true,
       });
     }
-    const useStub =
-      process.env.NODE_ENV === 'test' && Boolean(process.env.LLAMACPP_SERVER);
-    const { complete: completeImpl } = useStub
-      ? await import('../lib/llm.js')
-      : await import('../lib/lora_client.js');
+    if (process.env.NODE_ENV === 'test' && !process.env.LORA_SERVER_BASE) {
+      const text = 'stub:ok';
+      try {
+        logLLM('complete', {
+          model: body.model,
+          requestObj: { prompt, temperature, maxTokens },
+          responseText: text,
+          rawObj: {},
+        });
+      } catch {}
+      return res.json({ ok: true, completion: text, raw: {}, cached: false });
+    }
+    const { complete: completeImpl } = await import('../lib/lora_client.js');
 
     const r = await completeImpl({
       prompt,

@@ -42,12 +42,7 @@ function coerceBool(v, def) {
 
 export function getConfig() {
   const envPorts = {
-    llamacpp: process.env.LLAMACPP_PORT
-      ? Number(process.env.LLAMACPP_PORT)
-      : undefined,
-    ollamaProxy: process.env.OLLAMA_PROXY_PORT
-      ? Number(process.env.OLLAMA_PROXY_PORT)
-      : undefined,
+    // legacy ports deprecated (llamacpp/ollama)
     gateway: process.env.GATEWAY_PORT
       ? Number(process.env.GATEWAY_PORT)
       : undefined,

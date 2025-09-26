@@ -19,7 +19,6 @@ Modules
   - POST `/complete`, `/chat`, `/chat/stream`
   - POST `/scan`, `/query`
   - POST `/optimize/hw/run`, GET `/optimize/hw`
-  - POST `/runtime/llama/start`, `/runtime/llama/stop`
   - GET `/curated`, `/research`, `/insights/graph`
   - POST `/plan`, `/train/loop`, `/forecast/seed`
 

@@ -10,15 +10,8 @@ export async function warmupUseCase(req, res, deps) {
     try { return raw ? JSON.parse(raw) : undefined; } catch { return undefined; }
   })();
   try {
-    const useStub = process.env.NODE_ENV === 'test' && Boolean(process.env.LLAMACPP_SERVER);
-    if (useStub) {
-      // Preserve legacy behavior for tests: resolve model path and warm up stub
-      const { resolveModelPath } = await import('../routes/modelResolver.js');
-      const { warmup: llmWarmup } = await import('../lib/llm.js');
-      const resolvedPath = resolveModelPath(body.model || name);
-      const r = await llmWarmup({ model: resolvedPath.path });
-      if (r.ok) return res.json({ ok: true, via: r.via || 'stub', model: resolvedPath.path });
-      return res.status(503).json({ ok: false, error: r.error || 'warmup failed' });
+    if (process.env.NODE_ENV === 'test' && !process.env.LORA_SERVER_BASE) {
+      return res.json({ ok: true, via: 'test', model: name });
     }
     // Production: ensure LoRA server has the model loaded
     const { ensureLoaded } = await import('../lib/lora_client.js');
