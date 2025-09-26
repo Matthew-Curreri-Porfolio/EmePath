@@ -89,6 +89,17 @@ export const WhoogleSearchSchema = z
     path: ["q"],
   });
 
+// Projects
+export const ProjectCreateSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional(),
+  active: z.boolean().optional(),
+});
+
+export const ProjectSetActiveSchema = z.object({
+  active: z.boolean(),
+});
+
 // Answer (GET) — synthesize a direct answer with citations
 export const AnswerSchema = z
   .object({

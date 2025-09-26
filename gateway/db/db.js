@@ -455,6 +455,54 @@ export function resolveForecast(id, { outcome, judge, resolved_at = new Date().t
   run(sql, [ String(outcome||'unknown'), JSON.stringify(judge||{}), resolved_at, (brier_score==null? null : Number(brier_score)), notes, id ]);
 }
 
+// ------- Projects CRUD -------
+function mapProjectRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    workspaceId: row.workspace_id,
+    name: row.name,
+    description: row.description ?? null,
+    active: Boolean(row.active),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function createProject(userId, workspaceId, { name, description = null, active = true }) {
+  const act = active ? 1 : 0;
+  const info = run(
+    `INSERT INTO projects (user_id, workspace_id, name, description, active) VALUES (?, ?, ?, ?, ?)`,
+    [userId, String(workspaceId || 'default'), String(name), description, act]
+  );
+  const row = get(`SELECT id, user_id, workspace_id, name, description, active, created_at, updated_at FROM projects WHERE id = ?`, [info.lastInsertRowid]);
+  return mapProjectRow(row);
+}
+
+export function listProjects(userId, workspaceId, { active } = {}) {
+  const args = [userId, String(workspaceId || 'default')];
+  let sql = `SELECT id, user_id, workspace_id, name, description, active, created_at, updated_at FROM projects WHERE user_id = ? AND workspace_id = ?`;
+  if (typeof active === 'boolean') {
+    sql += ' AND active = ?';
+    args.push(active ? 1 : 0);
+  }
+  sql += ' ORDER BY datetime(created_at) DESC, id DESC';
+  const rows = all(sql, args);
+  return rows.map(mapProjectRow);
+}
+
+export function setProjectActive(userId, workspaceId, id, active) {
+  const act = active ? 1 : 0;
+  const info = run(
+    `UPDATE projects SET active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ? AND workspace_id = ?`,
+    [act, id, userId, String(workspaceId || 'default')]
+  );
+  if (!info || !info.changes) return null;
+  const row = get(`SELECT id, user_id, workspace_id, name, description, active, created_at, updated_at FROM projects WHERE id = ?`, [id]);
+  return mapProjectRow(row);
+}
+
 export default {
   getUserByUsername,
   createUser,
@@ -470,6 +518,9 @@ export default {
   listForecasts,
   listDueForecasts,
   resolveForecast,
+  createProject,
+  listProjects,
+  setProjectActive,
   run,
   get,
   all,

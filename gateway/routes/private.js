@@ -3,7 +3,8 @@ import { loginUseCase, requireAuth } from "../usecases/auth.js";
 import { cacheStats, purgeExpiredCache, run, listLLMRequests, getLLMRequestById, summarizeLLMRequests } from "../db/db.js";
 import { memoryShortUseCase, memoryLongUseCase, memoryList, memoryGet, memoryDelete } from "../usecases/memory.js";
 import { validate } from "../middleware/validate.js";
-import { MemoryWriteSchema } from "../validation/schemas.js";
+import { MemoryWriteSchema, ProjectCreateSchema, ProjectSetActiveSchema } from "../validation/schemas.js";
+import db from "../db/db.js";
 
 export function registerPrivate(app, deps, { memoryLimiter } = {}) {
   // Auth
@@ -36,6 +37,56 @@ export function registerPrivate(app, deps, { memoryLimiter } = {}) {
   });
   app.delete("/memory/long/:memid", requireAuth, memoryLimiter, async (req, res) => {
     await memoryDelete(req, res, "long");
+  });
+
+  // Projects (scoped to user/workspace)
+  app.post('/projects', requireAuth, validate(ProjectCreateSchema), async (req, res) => {
+    try {
+      const { userId, workspaceId } = req.session;
+      const body = req.body || {};
+      const project = db.createProject(userId, workspaceId, { name: body.name, description: body.description, active: body.active });
+      res.json({ ok: true, project });
+    } catch (e) {
+      const msg = String(e && e.message || e || '');
+      if (/UNIQUE constraint failed: projects\.name/i.test(msg)) {
+        return res.status(409).json({ ok: false, error: 'project_name_conflict' });
+      }
+      res.status(500).json({ ok: false, error: msg });
+    }
+  });
+
+  app.get('/projects/active', requireAuth, async (req, res) => {
+    try {
+      const { userId, workspaceId } = req.session;
+      const items = db.listProjects(userId, workspaceId, { active: true });
+      res.json({ ok: true, items });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e && e.message || e) });
+    }
+  });
+
+  app.get('/projects/inactive', requireAuth, async (req, res) => {
+    try {
+      const { userId, workspaceId } = req.session;
+      const items = db.listProjects(userId, workspaceId, { active: false });
+      res.json({ ok: true, items });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e && e.message || e) });
+    }
+  });
+
+  app.patch('/projects/:id/active', requireAuth, validate(ProjectSetActiveSchema), async (req, res) => {
+    try {
+      const { userId, workspaceId } = req.session;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ ok: false, error: 'invalid_id' });
+      const { active } = req.body || {};
+      const project = db.setProjectActive(userId, workspaceId, id, Boolean(active));
+      if (!project) return res.status(404).json({ ok: false, error: 'not_found' });
+      res.json({ ok: true, project });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e && e.message || e) });
+    }
   });
 
   // Admin cache routes (authenticated)

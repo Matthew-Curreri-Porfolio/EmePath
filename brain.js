@@ -17,4 +17,7 @@ class Brain {
     this.tasks = []; 
     this.taskIdCounter = 1;
     this.CFG = CFG;
+    this.contexts = {}; // Store context for each AI hotswapping
+    this.models = {}; // Available models for AI instances
+    this.promptBuilder(); // Initialize prompt builder
     }
