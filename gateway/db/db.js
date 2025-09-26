@@ -271,6 +271,44 @@ export function getLLMRequestById(id) {
   return mapLLMRow(row);
 }
 
+export function summarizeLLMRequests({ since, until, kind, group = 'model', limit = 100, offset = 0 } = {}) {
+  const where = [];
+  const args = [];
+  if (kind) { where.push('kind = ?'); args.push(kind); }
+  if (since) { where.push('created_at >= ?'); args.push(since); }
+  if (until) { where.push('created_at <= ?'); args.push(until); }
+  const clause = where.length ? ('WHERE ' + where.join(' AND ')) : '';
+  const lim = Math.min(Math.max(1, Number(limit) || 100), 1000);
+  const off = Math.max(0, Number(offset) || 0);
+
+  if (group === 'date') {
+    const sql = `SELECT date(created_at) as day, COUNT(1) as count, MIN(created_at) as first, MAX(created_at) as last
+                 FROM llm_requests ${clause}
+                 GROUP BY day
+                 ORDER BY day DESC
+                 LIMIT ? OFFSET ?`;
+    const rows = all(sql, [...args, lim, off]);
+    return rows.map(r => ({ day: r.day, count: Number(r.count || 0), first: r.first, last: r.last }));
+  }
+  if (group === 'model_date') {
+    const sql = `SELECT COALESCE(model,'') as model, date(created_at) as day, COUNT(1) as count
+                 FROM llm_requests ${clause}
+                 GROUP BY model, day
+                 ORDER BY model ASC, day DESC
+                 LIMIT ? OFFSET ?`;
+    const rows = all(sql, [...args, lim, off]);
+    return rows.map(r => ({ model: r.model, day: r.day, count: Number(r.count || 0) }));
+  }
+  // default: group by model
+  const sql = `SELECT COALESCE(model,'') as model, COUNT(1) as count, MIN(created_at) as first, MAX(created_at) as last
+               FROM llm_requests ${clause}
+               GROUP BY model
+               ORDER BY count DESC, model ASC
+               LIMIT ? OFFSET ?`;
+  const rows = all(sql, [...args, lim, off]);
+  return rows.map(r => ({ model: r.model, count: Number(r.count || 0), first: r.first, last: r.last }));
+}
+
 const DEFAULT_MEMID = 'default';
 
 function tableForScope(scope) {

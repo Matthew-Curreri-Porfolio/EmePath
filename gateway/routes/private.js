@@ -1,6 +1,6 @@
 // gateway/routes/private.js
 import { loginUseCase, requireAuth } from "../usecases/auth.js";
-import { cacheStats, purgeExpiredCache, run, listLLMRequests, getLLMRequestById } from "../db/db.js";
+import { cacheStats, purgeExpiredCache, run, listLLMRequests, getLLMRequestById, summarizeLLMRequests } from "../db/db.js";
 import { memoryShortUseCase, memoryLongUseCase, memoryList, memoryGet, memoryDelete } from "../usecases/memory.js";
 import { validate } from "../middleware/validate.js";
 import { MemoryWriteSchema } from "../validation/schemas.js";
@@ -73,6 +73,17 @@ export function registerPrivate(app, deps, { memoryLimiter } = {}) {
       const includeRaw = includeRequest; // tie together for simplicity
       const rows = listLLMRequests({ model, kind, since, until, limit, offset, includeRequest, includeRaw });
       res.json({ ok: true, items: rows });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e && e.message || e) });
+    }
+  });
+
+  // Summary endpoint (define before :id route to avoid capture)
+  app.get('/admin/logs/summary', requireAuth, async (req, res) => {
+    try {
+      const { since, until, kind, group, limit, offset } = req.query || {};
+      const items = summarizeLLMRequests({ since, until, kind, group, limit, offset });
+      res.json({ ok: true, group: group || 'model', items });
     } catch (e) {
       res.status(500).json({ ok: false, error: String(e && e.message || e) });
     }
