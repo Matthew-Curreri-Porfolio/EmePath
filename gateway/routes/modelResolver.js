@@ -1,8 +1,11 @@
 // gateway/routes/modelResolver.js
 // Single endpoint: GET /model/resolve?arg=<ref>[&debug=1][&hash=1]
-// Ref may be: absolute .gguf | dir (with Modelfile or *.gguf) | Modelfile path
-//             | sha256[-digest] | Ollama-style "namespace/name:tag" (local only)
-// No external deps, no Ollama calls.
+// Legacy resolver for local model artifacts. Supported refs:
+// - absolute .gguf files
+// - directories containing *.gguf
+// - Modelfile paths (FROM directives)
+// - simple "namespace/name:tag" strings (local-only; uses manifests directory)
+// No external deps or network calls.
 
 import fs from 'fs';
 import path from 'path';

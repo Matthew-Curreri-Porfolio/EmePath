@@ -6,10 +6,6 @@ import { scanUseCase } from '../usecases/scan.js';
 import { queryUseCase } from '../usecases/query.js';
 import { getModels } from '../usecases/models.js';
 import {
-  runHwOptimizeUseCase,
-  getHwProfileUseCase,
-} from '../usecases/optimize.js';
-import {
   compressShortToLongUseCase,
   compressLongGlobalUseCase,
 } from '../usecases/compress.js';
@@ -72,12 +68,7 @@ export function registerAgentic(app, deps, limiters = {}) {
   });
 
   // Optimize + Runtime
-  app.post('/optimize/hw/run', async (req, res) => {
-    await runHwOptimizeUseCase(req, res);
-  });
-  app.get('/optimize/hw', async (req, res) => {
-    await getHwProfileUseCase(req, res);
-  });
+  // Removed hardware optimize/runtime routes
   // Removed llama runtime endpoints
 
   // Curated + Research

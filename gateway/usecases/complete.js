@@ -1,5 +1,5 @@
 // gateway/usecases/complete.js
-// Primary inference via Python LoRA server; fallback to llama.cpp stub in tests.
+// Primary inference via Python LoRA server; fallback to a lightweight test stub.
 import { stableStringify } from '../lib/cache.js';
 import { cacheGet, cachePut, logLLM } from '../db/db.js';
 

@@ -12,7 +12,8 @@ cat > "$ROUTES_DIR/toolcall.js" <<'JS'
 // Minimal Tool Call Block dispatcher for the copilot.
 // Single endpoint: POST /toolcall
 // Body shape:
-// { "tool":"runtime.start","method":"POST","endpoint":"/runtime/llama/start","params":{...},"body":{...} }
+// Example:
+// { "tool":"warmup","method":"POST","endpoint":"/warmup","body":{ "name":"qwen3-7b","model_path":"unsloth/Qwen2.5-7B" } }
 
 export function registerToolCall(app /*, deps */) {
   app.post("/toolcall", async (req, res) => {

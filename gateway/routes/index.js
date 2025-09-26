@@ -32,10 +32,6 @@ import {
 import { getModels } from '../usecases/models.js';
 
 import {
-  runHwOptimizeUseCase,
-  getHwProfileUseCase,
-} from '../usecases/optimize.js';
-import {
   startLlamaServerUseCase,
   stopLlamaServerUseCase,
 } from '../usecases/runtime.js';
@@ -265,12 +261,7 @@ export default function registerRoutes(app, deps) {
   });
 
   // Hardware optimization profile
-  app.post('/optimize/hw/run', async (req, res) => {
-    await runHwOptimizeUseCase(req, res, deps);
-  });
-  app.get('/optimize/hw', async (req, res) => {
-    await getHwProfileUseCase(req, res);
-  });
+  // Removed optimize hardware routes
 
   // Removed llama runtime endpoints
 

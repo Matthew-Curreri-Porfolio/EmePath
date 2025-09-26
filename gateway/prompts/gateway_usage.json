@@ -23,7 +23,7 @@
       "body": {
         "username": "<username>",
         "password": "<password>",
-        "workspaceId": "default"
+        "projectId": "default"
       }
     },
     "chat.complete": {
@@ -115,17 +115,6 @@
         "iterations": 1,
         "perIter": 1
       }
-    },
-    "optimize.hw.run": {
-      "method": "POST",
-      "path": "/optimize/hw/run",
-      "auth": "none",
-      "body": { "model": "SimonPu/gpt-oss:20b_Q4_K_M" }
-    },
-    "optimize.hw.get": {
-      "method": "GET",
-      "path": "/optimize/hw",
-      "auth": "none"
     },
     "prompts.preview": {
       "method": "GET",

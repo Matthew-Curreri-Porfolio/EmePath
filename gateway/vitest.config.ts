@@ -8,7 +8,7 @@ export default defineConfig({
     // Run gateway-local tests when invoked from this directory
     include: ['tests/**/*.test.{js,ts}'],
     exclude: ['rooms/tests/**', 'memory/tests/**', 'node_modules/**'],
-    // Start the llama stub server for streaming + plan tests
+    // No external stubs; tests use internal stubs where needed
     setupFiles: [],
   },
 });

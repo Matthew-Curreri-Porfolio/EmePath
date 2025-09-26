@@ -1,5 +1,5 @@
 // gateway/usecases/warmup.js
-// Warmup loader: Prefer llama stub in tests; otherwise ensure LoRA server is ready
+// Warmup loader: in tests without a LoRA server, short‑circuit OK; otherwise ensure LoRA server is ready
 
 export async function warmupUseCase(req, res, deps) {
   const body = req.body || {};

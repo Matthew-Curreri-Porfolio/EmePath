@@ -1,9 +1,8 @@
-// Orchestrate local stack: llama.cpp server, Ollama-compatible proxy, and gateway
+// Orchestrate local stack: Python LoRA server and the gateway
 // Configuration via env (sensible defaults):
-//   LLAMA_MODEL_PATH, LLAMACPP_PORT=8088, OLLAMA_PROXY_PORT=11434, GATEWAY_PORT=3123
+//   LORA_SERVER_PORT=8000, GATEWAY_PORT=3123
 //   WHOOGLE_BASE=http://127.0.0.1:5010
 //   GATEWAY_PYTHON=$HOME/miniconda3/envs/gateway/bin/python (preferred) or via PATH/conda
-//   MODEL_SEARCH_ROOTS=colon:separated:paths (to help find .gguf)
 
 import { spawn } from 'child_process';
 import fs from 'fs';

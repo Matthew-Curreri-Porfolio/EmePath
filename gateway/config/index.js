@@ -41,16 +41,10 @@ function coerceBool(v, def) {
 }
 
 export function getConfig() {
-  const envPorts = {
-    // legacy ports deprecated (llamacpp/ollama)
+  const ports = {
     gateway: process.env.GATEWAY_PORT
       ? Number(process.env.GATEWAY_PORT)
-      : undefined,
-  };
-  const ports = {
-    llamacpp: envPorts.llamacpp || merged.ports?.llamacpp || 8088,
-    ollamaProxy: envPorts.ollamaProxy || merged.ports?.ollamaProxy || 11435,
-    gateway: envPorts.gateway || merged.ports?.gateway || 3123,
+      : merged.ports?.gateway || 3123,
   };
 
   const searxng = {
@@ -84,14 +78,7 @@ export function getConfig() {
       : [],
   };
 
-  const runtime = {
-    keepLlamaOnExit: coerceBool(
-      process.env.STACK_KEEP_LLAMA,
-      merged.runtime?.keepLlamaOnExit ?? true
-    ),
-  };
-
-  return { ports, searxng, prompts, models, runtime };
+  return { ports, searxng, prompts, models };
 }
 
 export default { getConfig };

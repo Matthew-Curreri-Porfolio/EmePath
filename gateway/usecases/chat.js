@@ -1,5 +1,5 @@
 // gateway/usecases/chat.js
-// Primary inference via Python LoRA server; fallback to llama.cpp stub in tests.
+// Primary inference via Python LoRA server; fallback to a lightweight test stub.
 import { stableStringify } from '../lib/cache.js';
 import { cacheGet, cachePut, logLLM } from '../db/db.js';
 
@@ -50,7 +50,7 @@ export async function chatUseCase(req, res, deps) {
         cached: true,
       });
     }
-    // Select backend: prefer llama.cpp stub during tests, otherwise LoRA server
+    // Select backend: in tests without a LoRA server, return a stubbed response
     if (process.env.NODE_ENV === 'test' && !process.env.LORA_SERVER_BASE) {
       const content = 'stub:ok';
       try {

@@ -15,7 +15,9 @@ export async function loginUseCase(req, res, deps) {
   if (user.password_hash !== password) {
     return res.status(401).json({ error: 'invalid credentials' });
   }
-  const token = createSession(user.id, req.body?.workspaceId || 'default');
+  // Accept either projectId (preferred) or workspaceId (legacy)
+  const projectId = req.body?.projectId || req.body?.workspaceId || 'default';
+  const token = createSession(user.id, projectId);
   res.json({ token, userId: user.id });
 }
 

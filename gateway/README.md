@@ -8,6 +8,7 @@ Local inference gateway for a Python LoRA server with an OpenAI‑style chat API
 - LoRA server integration (FastAPI endpoints)
 - SearXNG search support via `/searxng` (JSON)
 - Prompt registry (`gateway/prompts/prompts.builder.js`) + composer with policy + role‑based affirmations
+- Brain orchestrator (see `documents/brain_architecture.md`) for intent→goals→plan→agents
 - Model suggestions: Unsloth/HF defaults for local runs
 
 ## Run (standalone)
@@ -38,7 +39,6 @@ Knobs:
   - `PROMPT_INCLUDE_PERSONAL=true|false`
   - `PROMPT_PERSONAL_INDEX=N` or `PROMPT_PERSONAL_RANDOM=1`
   - `MATT`, `ROOT`, `SYSTEM` names for policy placeholders
-  - Runtime: (none)
 
 Example local overrides (`gateway/config/local.json`):
 
@@ -79,7 +79,7 @@ curl "http://127.0.0.1:3123/prompts/preview?key=plan.system&envOs=linux"
 
 ### Projects (authenticated)
 
-All project endpoints require a Bearer token from `/auth/login` and are scoped to the authenticated `userId` and `workspaceId`.
+All project endpoints require a Bearer token from `/auth/login` and are scoped to the authenticated `userId` and `projectId` (legacy field `workspaceId`).
 
 - `POST /projects` — create a project in scope
   - Body: `{ name: string, description?: string, active?: boolean }`
