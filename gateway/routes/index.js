@@ -9,6 +9,7 @@ import * as prom from "prom-client";
 import { randomUUID } from "crypto";
 import { registerPublic } from "./public.js";
 import { registerPrivate } from "./private.js";
+import { purgeExpiredCache } from "../db/db.js";
 import { registerAgentic } from "./agentic.js";
 
 import db from "../db/db.js";
@@ -107,6 +108,17 @@ export default function registerRoutes(app, deps) {
 
   // Private routes
   registerPrivate(app, deps, { memoryLimiter });
+
+  // Background cache purge (lightweight)
+  try {
+    // Purge on startup
+    purgeExpiredCache();
+    // Schedule every 5 minutes
+    const intervalMs = Number(process.env.CACHE_PURGE_INTERVAL_MS || 5 * 60_000);
+    if (intervalMs > 0) {
+      setInterval(() => { try { purgeExpiredCache(); } catch {} }, intervalMs).unref?.();
+    }
+  } catch {}
 
   app.post("/chat", chatLimiter, validate(ChatSchema), async (req, res) => {
     await chatUseCase(req, res, deps);

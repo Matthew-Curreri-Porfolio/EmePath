@@ -3,6 +3,7 @@ import fs from 'fs';
 import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { randomUUID } from 'crypto';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const MIGRATIONS_DIR = path.resolve(__dirname, 'migrations');
@@ -136,6 +137,138 @@ export function all(sql, params = []) {
   } catch (err) {
     throw err;
   }
+}
+
+// -------------- LLM cache + logging --------------
+
+function tryParseJSON(x) { try { return JSON.parse(String(x || '')); } catch { return null; } }
+
+export function cacheGet(kind, key) {
+  const row = get(`SELECT key, kind, model, request, response, raw, created_at, expires_at FROM llm_cache WHERE key = ? LIMIT 1`, [key]);
+  if (!row) return null;
+  if (row.expires_at) {
+    const expTs = Date.parse(row.expires_at);
+    if (Number.isFinite(expTs) && expTs < Date.now()) {
+      // expired; best-effort cleanup
+      try { run(`DELETE FROM llm_cache WHERE key = ?`, [key]); } catch {}
+      return null;
+    }
+  }
+  return {
+    key: row.key,
+    kind: row.kind,
+    model: row.model,
+    request: tryParseJSON(row.request),
+    response: row.response,
+    raw: tryParseJSON(row.raw),
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+  };
+}
+
+export function cachePut(kind, key, { model, requestObj, responseText, rawObj, ttlMs }) {
+  const now = new Date();
+  const exp = ttlMs && ttlMs > 0 ? new Date(now.getTime() + ttlMs) : null;
+  const expires = exp ? exp.toISOString() : null;
+  run(
+    `INSERT OR REPLACE INTO llm_cache (key, kind, model, request, response, raw, created_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, COALESCE(
+       (SELECT created_at FROM llm_cache WHERE key = ?),
+       CURRENT_TIMESTAMP
+     ), ?)`,
+    [
+      key,
+      kind,
+      model || null,
+      requestObj ? JSON.stringify(requestObj) : null,
+      responseText ?? null,
+      rawObj ? JSON.stringify(rawObj) : null,
+      key,
+      expires,
+    ]
+  );
+}
+
+export function logLLM(kind, { model, requestObj, responseText, rawObj, promptTokens, completionTokens, totalTokens, costUsd }) {
+  const id = randomUUID();
+  run(
+    `INSERT INTO llm_requests (id, kind, model, request, response, raw, created_at, prompt_tokens, completion_tokens, total_tokens, cost_usd)
+     VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?)`,
+    [
+      id,
+      kind,
+      model || null,
+      requestObj ? JSON.stringify(requestObj) : null,
+      responseText ?? null,
+      rawObj ? JSON.stringify(rawObj) : null,
+      typeof promptTokens === 'number' ? promptTokens : null,
+      typeof completionTokens === 'number' ? completionTokens : null,
+      typeof totalTokens === 'number' ? totalTokens : null,
+      typeof costUsd === 'number' ? costUsd : null,
+    ]
+  );
+  return id;
+}
+
+export function purgeExpiredCache() {
+  try {
+    const info = run(`DELETE FROM llm_cache WHERE expires_at IS NOT NULL AND expires_at < CURRENT_TIMESTAMP`);
+    return info?.changes || 0;
+  } catch (e) { return 0; }
+}
+
+export function cacheStats() {
+  const summary = get(`SELECT COUNT(1) as count, MIN(created_at) as oldest, MAX(created_at) as newest FROM llm_cache`, []);
+  const expiring = get(`SELECT COUNT(1) as expiring FROM llm_cache WHERE expires_at IS NOT NULL AND expires_at < datetime('now', '+5 minutes')`, []);
+  return {
+    count: Number(summary?.count || 0),
+    oldest: summary?.oldest || null,
+    newest: summary?.newest || null,
+    expiringSoon: Number(expiring?.expiring || 0),
+  };
+}
+
+// ------- LLM request audit queries -------
+function mapLLMRow(row) {
+  if (!row) return null;
+  const tryJSON = (v) => { try { return JSON.parse(String(v || '')); } catch { return null; } };
+  return {
+    id: row.id,
+    kind: row.kind,
+    model: row.model,
+    createdAt: row.created_at,
+    request: row.request ? tryJSON(row.request) : null,
+    response: row.response ?? null,
+    raw: row.raw ? tryJSON(row.raw) : null,
+    promptTokens: row.prompt_tokens ?? null,
+    completionTokens: row.completion_tokens ?? null,
+    totalTokens: row.total_tokens ?? null,
+    costUsd: row.cost_usd ?? null,
+  };
+}
+
+export function listLLMRequests({ model, kind, since, until, limit = 50, offset = 0, includeRequest = false, includeRaw = false } = {}) {
+  const where = [];
+  const args = [];
+  if (model) { where.push('model = ?'); args.push(model); }
+  if (kind) { where.push('kind = ?'); args.push(kind); }
+  if (since) { where.push('created_at >= ?'); args.push(since); }
+  if (until) { where.push('created_at <= ?'); args.push(until); }
+  const selReq = includeRequest ? ', request' : '';
+  const selRaw = includeRaw ? ', raw' : '';
+  const sql = `SELECT id, kind, model, created_at, response, prompt_tokens, completion_tokens, total_tokens, cost_usd${selReq}${selRaw}
+              FROM llm_requests ${where.length ? ('WHERE ' + where.join(' AND ')) : ''}
+              ORDER BY datetime(created_at) DESC
+              LIMIT ? OFFSET ?`;
+  args.push(Math.min(Math.max(1, Number(limit) || 50), 500));
+  args.push(Math.max(0, Number(offset) || 0));
+  const rows = all(sql, args);
+  return rows.map(mapLLMRow);
+}
+
+export function getLLMRequestById(id) {
+  const row = get(`SELECT id, kind, model, created_at, request, response, raw, prompt_tokens, completion_tokens, total_tokens, cost_usd FROM llm_requests WHERE id = ? LIMIT 1`, [id]);
+  return mapLLMRow(row);
 }
 
 const DEFAULT_MEMID = 'default';
