@@ -89,6 +89,16 @@ export function registerPrivate(app, deps, { memoryLimiter } = {}) {
     }
   });
 
+  app.get('/projects', requireAuth, async (req, res) => {
+    try {
+      const { userId, workspaceId } = req.session;
+      const items = db.listProjects(userId, workspaceId, {});
+      res.json({ ok: true, items });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e && e.message || e) });
+    }
+  });
+
   // Admin cache routes (authenticated)
   app.get('/admin/cache/stats', requireAuth, async (_req, res) => {
     try {

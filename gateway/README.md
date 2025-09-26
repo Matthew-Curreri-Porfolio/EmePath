@@ -77,6 +77,33 @@ curl "http://127.0.0.1:3123/prompts/preview?key=plan.system&envOs=linux"
 - `POST /plan` — safe, verifiable runbook planner
 - `GET /prompts/preview?key=...` — renders composed prompt text
 
+### Projects (authenticated)
+
+All project endpoints require a Bearer token from `/auth/login` and are scoped to the authenticated `userId` and `workspaceId`.
+
+- `POST /projects` — create a project in scope
+  - Body: `{ name: string, description?: string, active?: boolean }`
+  - 409 if `name` already exists (unique)
+- `GET /projects` — list all projects in scope (active and inactive)
+- `GET /projects/active` — list active projects in scope
+- `GET /projects/inactive` — list inactive projects in scope
+- `PATCH /projects/:id/active` — set active flag
+  - Body: `{ active: boolean }`
+
+Example:
+
+```
+curl -H "authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"name":"alpha","description":"first"}' \
+  http://127.0.0.1:3123/projects
+
+curl -H "authorization: Bearer $TOKEN" http://127.0.0.1:3123/projects/active
+curl -H "authorization: Bearer $TOKEN" http://127.0.0.1:3123/projects
+curl -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -X PATCH -d '{"active":false}' http://127.0.0.1:3123/projects/1/active
+```
+
 ## Streaming Feedback
 
 ### Chat Streaming (`POST /chat/stream`)

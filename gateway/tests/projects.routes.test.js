@@ -101,6 +101,14 @@ describe('Projects routes', () => {
     expect(listInactive.body.ok).toBe(true);
     expect(listInactive.body.items.some(p => p.name === 'alpha' && p.active === false)).toBe(true);
 
+    // All-in-scope list contains it regardless of active flag
+    const listAll = await agent
+      .get('/projects')
+      .set('Authorization', `Bearer ${token}`);
+    expect(listAll.status).toBe(200);
+    expect(listAll.body.ok).toBe(true);
+    expect(listAll.body.items.some(p => p.name === 'alpha')).toBe(true);
+
     // Creating duplicate name should 409
     const dup = await agent
       .post('/projects')
@@ -109,4 +117,3 @@ describe('Projects routes', () => {
     expect(dup.status).toBe(409);
   });
 });
-
