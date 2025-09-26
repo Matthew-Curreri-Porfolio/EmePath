@@ -56,6 +56,7 @@ import { answerWeb } from '../tools/answers.js';
 import { registerModelResolver, resolveModelPath } from './modelResolver.js';
 import { composeSystem } from '../prompts/compose.js';
 import { getPrompt as getBasePrompt } from '../prompts/index.js';
+import { parseLLMResponse } from '../middleware/parse_llm_response.js';
 
 import { validate } from '../middleware/validate.js';
 import {
@@ -169,6 +170,31 @@ export default function registerRoutes(app, deps) {
       }, intervalMs).unref?.();
     }
   } catch {}
+
+  // Test-only route to exercise parseLLMResponse middleware
+  if (
+    process.env.NODE_ENV === 'test' ||
+    String(process.env.ENABLE_PARSE_TEST || '').toLowerCase() === 'true'
+  ) {
+    app.post(
+      '/__test/parse',
+      (req, res, next) => {
+        // Seed the middleware with raw LLM output from request
+        res.locals.llmResponse = String(
+          (req.body && (req.body.text ?? req.body.content)) || ''
+        );
+        next();
+      },
+      parseLLMResponse,
+      (req, res) => {
+        res.json({
+          ok: true,
+          text: res.locals.llmResponse,
+          usage: res.locals.gatewayUsage || null,
+        });
+      }
+    );
+  }
 
   app.post('/chat', chatLimiter, validate(ChatSchema), async (req, res) => {
     await chatUseCase(req, res, deps);
