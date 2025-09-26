@@ -25,39 +25,9 @@ function pickModel(body, defaultModel) {
   return defaultModel;
 }
 
-async function callOllamaChat(_OLLAMA, model, messages, _keepAlive) {
-  // Updated: use llama.cpp OpenAI-style server for non-streaming chat
-  const base = String(process.env.LLAMACPP_SERVER || '').replace(/\/$/, '');
-  if (!base) throw new Error('LLAMACPP_SERVER not set');
-  const url = base + '/v1/chat/completions';
-  const payload = {
-    model: model || 'default',
-    messages: (messages || []).map((m) => ({
-      role: m.role || 'user',
-      content: String(m.content ?? ''),
-    })),
-    temperature: 0.2,
-    stream: false,
-  };
-
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!r.ok) {
-    const txt = await r.text();
-    throw new Error('llama.cpp chat failed: ' + r.status + ' ' + txt);
-  }
-  const j = await r.json();
-  const content =
-    j &&
-    j.choices &&
-    j.choices[0] &&
-    j.choices[0].message &&
-    j.choices[0].message.content;
-  if (typeof content !== 'string')
-    throw new Error('llama.cpp chat bad response');
+import { chat as loraChat } from '../lib/lora_client.js';
+async function callChat(_OLLAMA, model, messages, _keepAlive) {
+  const { content } = await loraChat({ messages, temperature: 0.2, maxTokens: 1024, model });
   return content;
 }
 
@@ -141,7 +111,7 @@ async function compressShortToLongUseCase(req, res, deps) {
 
   let distill;
   try {
-    distill = await callOllamaChat(OLLAMA, model, [sysMsg, userMsg], keepAlive);
+    distill = await callChat(OLLAMA, model, [sysMsg, userMsg], keepAlive);
   } catch (e) {
     res
       .status(502)
@@ -167,7 +137,7 @@ async function compressShortToLongUseCase(req, res, deps) {
   ];
   let summary = '';
   try {
-    summary = await callOllamaChat(OLLAMA, model, sumMsgs, keepAlive);
+    summary = await callChat(OLLAMA, model, sumMsgs, keepAlive);
   } catch (e) {
     summary = ''; // do not fail the whole pipeline
   }
@@ -232,7 +202,7 @@ async function compressLongGlobalUseCase(req, res, deps) {
 
   let kb = '';
   try {
-    kb = await callOllamaChat(OLLAMA, model, msgs, keepAlive);
+    kb = await callChat(OLLAMA, model, msgs, keepAlive);
   } catch (e) {
     res
       .status(502)

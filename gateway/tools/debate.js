@@ -1,7 +1,7 @@
 // gateway/tools/debate.js
 // Multi-agent debate over grounded evidence (web/local/hybrid), emitting structured JSON.
 
-import { chat as llmChat } from '../lib/llm.js';
+import { chat as llmChat } from '../lib/lora_client.js';
 import { insightsEngine } from './insights.js';
 import { composeSystem } from '../prompts/compose.js';
 

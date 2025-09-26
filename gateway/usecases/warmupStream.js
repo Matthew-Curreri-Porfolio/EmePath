@@ -1,5 +1,5 @@
 // gateway/usecases/warmupStream.js
-import { warmup as llmWarmup } from '../lib/llm.js';
+import { ensureLoaded } from '../lib/lora_client.js';
 
 export async function warmupStreamUseCase(req, res, deps) {
   const { log, getTimeoutMs } = deps || {};
@@ -37,18 +37,16 @@ export async function warmupStreamUseCase(req, res, deps) {
   res.on('close', onClose);
 
   try {
-    const result = await llmWarmup({ model: body.model, timeoutMs });
+    const name = body.name || body.model || process.env.LORA_MODEL_NAME || 'default';
+    const model_path = body.model_path || process.env.LORA_MODEL_PATH || '';
+    const lora_paths = body.lora_paths || (() => {
+      const raw = process.env.LORA_LORA_PATHS_JSON || process.env.LORA_ADAPTERS_JSON || '';
+      try { return raw ? JSON.parse(raw) : undefined; } catch { return undefined; }
+    })();
+    await ensureLoaded({ name, model_path, lora_paths }, timeoutMs);
     done = true;
     clearInterval(hb);
-    if (result && result.ok) {
-      send({ event: 'status', state: 'ok', via: result.via || 'unknown' });
-    } else {
-      send({
-        event: 'status',
-        state: 'error',
-        error: String((result && result.error) || 'unknown'),
-      });
-    }
+    send({ event: 'status', state: 'ok', via: 'lora_server' });
     res.end();
   } catch (e) {
     const reason =

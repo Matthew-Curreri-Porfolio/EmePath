@@ -73,3 +73,5 @@ gateway/config/local.json
 cookie.txt
 nohup.out
 .stack.pids.json
+/gateway/models/base/qwen3-1.7b-base
+/gateway/models/base/qwen3-4b-base

@@ -19,8 +19,9 @@ function tryParseJsonLoose(text) {
   return null;
 }
 
-function extractGatewayUsage(raw) {
-  if (!raw || typeof raw !== 'string') return { usage: null, cleaned: raw };
+export function extractGatewayUsage(raw) {
+  if (!raw || typeof raw !== 'string')
+    return { usage: null, cleaned: raw, prefix: raw, suffix: '' };
 
   // Patterns to capture a usage JSON block in common LLM formats.
   const patterns = [
@@ -38,12 +39,18 @@ function extractGatewayUsage(raw) {
     const jsonText = (m[1] || '').trim();
     const parsed = tryParseJsonLoose(jsonText);
     if (parsed && typeof parsed === 'object') {
-      // Remove the matched block from the text shown to users
-      const cleaned = raw.replace(m[0], '').replace(/\n{3,}/g, '\n\n').trim();
-      return { usage: parsed, cleaned };
+      // Compute prefix/suffix around the matched block
+      const idx = m.index || raw.indexOf(m[0]);
+      const prefix = raw.slice(0, idx).replace(/[ \t]+$/gm, '').trimEnd();
+      const suffix = raw
+        .slice(idx + m[0].length)
+        .replace(/^[ \t]+/gm, '')
+        .trimStart();
+      const cleaned = [prefix, suffix].filter(Boolean).join('\n\n');
+      return { usage: parsed, cleaned, prefix, suffix };
     }
   }
-  return { usage: null, cleaned: raw };
+  return { usage: null, cleaned: raw, prefix: raw, suffix: '' };
 }
 
 export function parseLLMResponse(req, res, next) {

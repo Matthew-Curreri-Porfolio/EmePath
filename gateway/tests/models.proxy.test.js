@@ -20,14 +20,9 @@ describe('Models proxy parity', () => {
   let app;
   let server;
   let agent;
-  let llamaBase;
 
   beforeAll(async () => {
-    if (!globalThis.__LLAMA_STUB__ || !globalThis.__LLAMA_STUB__.port) {
-      throw new Error('LLAMA stub must be started via setup');
-    }
-    llamaBase = `http://127.0.0.1:${globalThis.__LLAMA_STUB__.port}`;
-    process.env.LLAMACPP_SERVER = llamaBase;
+    // No external stub; rely on gateway's internal model list
 
     app = express();
     app.use(cors());
@@ -57,7 +52,7 @@ describe('Models proxy parity', () => {
     if (server) await new Promise((resolve) => server.close(resolve));
   });
 
-  it('returns OpenAI-style list with manifest-derived ids', async () => {
+  it('returns OpenAI-style list with built-in suggestions', async () => {
     const proxied = await agent.get('/models');
     expect(proxied.status).toBe(200);
     expect(proxied.body?.object).toBe('list');
@@ -67,8 +62,6 @@ describe('Models proxy parity', () => {
       expect(entry?.object).toBe('model');
       expect(typeof entry?.id).toBe('string');
       expect(entry.id.length).toBeGreaterThan(0);
-      expect(entry.id.startsWith('/home')).toBe(false);
-      expect(entry.id.includes(':')).toBe(true);
       expect(typeof entry.owned_by).toBe('string');
     }
   });

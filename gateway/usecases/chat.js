@@ -1,5 +1,5 @@
 // gateway/usecases/chat.js
-import { chat as llmChat } from '../lib/llm.js';
+// Primary inference via Python LoRA server; fallback to llama.cpp stub in tests.
 import { stableStringify } from '../lib/cache.js';
 import { cacheGet, cachePut, logLLM } from '../db/db.js';
 
@@ -50,9 +50,18 @@ export async function chatUseCase(req, res, deps) {
         cached: true,
       });
     }
-    const r = await llmChat({
+    // Select backend: prefer llama.cpp stub during tests, otherwise LoRA server
+    const useStub =
+      process.env.NODE_ENV === 'test' && Boolean(process.env.LLAMACPP_SERVER);
+    const { chat: chatImpl } = useStub
+      ? await import('../lib/llm.js')
+      : await import('../lib/lora_client.js');
+
+    const r = await chatImpl({
       messages,
       model: body.model,
+      loraName: body.loraName,
+      loraModel: body.loraModel, // { name, model_path, lora_paths } — LoRA only
       temperature,
       maxTokens,
       timeoutMs: getTimeoutMs(),

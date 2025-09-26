@@ -7,7 +7,7 @@ Local inference gateway for llama.cpp with an OpenAI‑style chat API, streaming
 - REST endpoints for chat (`/chat`), streaming (`/chat/stream`), completion (`/complete`), warmup, models, research/insights, plan/debate/forecast/graph, memory, and tool dispatch
 - llama.cpp integration (server on `/v1/*`)
 - SearXNG search support via `/searxng` (JSON)
-- Prompt registry (`gateway/prompts/prompts.json`) + composer with policy + role‑based affirmations
+- Prompt registry (`gateway/prompts/prompts.builder.js`) + composer with policy + role‑based affirmations
 - Model resolver: uses Ollama manifests (refs → digests → blobs) to auto‑select instruction‑tuned models
 
 ## Run (standalone)
@@ -54,7 +54,7 @@ Example local overrides (`gateway/config/local.json`):
 
 ## Prompts
 
-All system prompts live in `gateway/prompts/prompts.json` and are composed via `gateway/prompts/compose.js`:
+All system prompts live in `gateway/prompts/prompts.builder.js` and are composed via `gateway/prompts/compose.js`:
 
 - Policy: `policy.matt` > `policy.root` > `policy.system`
 - Role identities under `personal.roles` (e.g., `planner`, `forecaster`)

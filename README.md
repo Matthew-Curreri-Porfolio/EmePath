@@ -62,7 +62,7 @@ Example local override (`gateway/config/local.json`):
 
 ### Prompts
 
-All system prompts are defined in `gateway/prompts/prompts.json` and composed via `gateway/prompts/compose.js`.
+All system prompts are defined programmatically in `gateway/prompts/prompts.builder.js` and composed via `gateway/prompts/compose.js`.
 
 - Policy hierarchy: `policy.matt > policy.root > policy.system`
 - Role‑based affirmation per tool (e.g., planner, forecaster)

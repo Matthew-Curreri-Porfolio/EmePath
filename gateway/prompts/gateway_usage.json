@@ -127,18 +127,6 @@
       "path": "/optimize/hw",
       "auth": "none"
     },
-    "runtime.llama.start": {
-      "method": "POST",
-      "path": "/runtime/llama/start",
-      "auth": "none",
-      "body": {}
-    },
-    "runtime.llama.stop": {
-      "method": "POST",
-      "path": "/runtime/llama/stop",
-      "auth": "none",
-      "body": {}
-    },
     "prompts.preview": {
       "method": "GET",
       "path": "/prompts/preview",

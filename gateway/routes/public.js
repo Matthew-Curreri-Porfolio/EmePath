@@ -12,29 +12,24 @@ export function registerPublic(app, deps) {
       ok: true,
       mock: process.env.MOCK || false,
       model: process.env.MODEL || null,
-      ollama: Boolean(process.env.LLAMACPP_SERVER),
       timeoutMs: getTimeoutMs(),
       pid: process.pid,
     })
   );
 
-  // Readiness (llama.cpp server if configured)
+  // Readiness (LoRA server if configured)
   app.get('/ready', async (_req, res) => {
-    const base = String(process.env.LLAMACPP_SERVER || '').replace(/\/$/, '');
-    if (!base) {
-      return res
-        .status(200)
-        .json({ ok: true, upstream: 'llama.cpp-cli', status: 200 });
-    }
+    const base = String(process.env.LORA_SERVER_BASE || '').replace(/\/$/, '');
     try {
-      const r = await fetch(`${base}/v1/models`, {
+      if (!base) return res.status(200).json({ ok: true, upstream: 'gateway' });
+      const r = await fetch(`${base}/models`, {
         method: 'GET',
         headers: {},
         signal: AbortSignal.timeout(3000),
       });
       return res
         .status(r.ok ? 200 : 503)
-        .json({ ok: r.ok, upstream: 'llama.cpp-server', status: r.status });
+        .json({ ok: r.ok, upstream: 'lora-server', status: r.status });
     } catch (e) {
       return res
         .status(503)

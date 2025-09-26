@@ -1,16 +1,9 @@
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { buildPrompts } from './prompts.builder.js';
 
 let CACHE = null;
 function load() {
   if (CACHE) return CACHE;
-  const p = path.resolve(__dirname, './prompts.json');
-  const txt = fs.readFileSync(p, 'utf8');
-  CACHE = JSON.parse(txt);
+  CACHE = buildPrompts();
   return CACHE;
 }
 

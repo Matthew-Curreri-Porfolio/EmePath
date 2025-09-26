@@ -15,6 +15,7 @@ import { registerAgentic } from './agentic.js';
 import db from '../db/db.js';
 import { completeUseCase } from '../usecases/complete.js';
 import { chatUseCase } from '../usecases/chat.js';
+import { chatWithToolsUseCase } from '../usecases/chatWithTools.js';
 import { chatStreamUseCase } from '../usecases/chatStream.js';
 import { warmupUseCase } from '../usecases/warmup.js';
 import { warmupStreamUseCase } from '../usecases/warmupStream.js';
@@ -57,6 +58,7 @@ import { registerModelResolver, resolveModelPath } from './modelResolver.js';
 import { composeSystem } from '../prompts/compose.js';
 import { getPrompt as getBasePrompt } from '../prompts/index.js';
 import { parseLLMResponse } from '../middleware/parse_llm_response.js';
+import { listLoraModels, listLoraAdapters, loadLoraModel } from '../usecases/lora.js';
 
 import { validate } from '../middleware/validate.js';
 import {
@@ -199,6 +201,9 @@ export default function registerRoutes(app, deps) {
   app.post('/chat', chatLimiter, validate(ChatSchema), async (req, res) => {
     await chatUseCase(req, res, deps);
   });
+  app.post('/chat/tools', chatLimiter, validate(ChatSchema), async (req, res) => {
+    await chatWithToolsUseCase(req, res, deps);
+  });
 
   app.post('/warmup', validate(WarmupSchema), async (req, res) => {
     await warmupUseCase(req, res, deps);
@@ -248,6 +253,17 @@ export default function registerRoutes(app, deps) {
     }
   );
 
+  // LoRA server introspection
+  app.get('/lora/models', async (req, res) => {
+    await listLoraModels(req, res);
+  });
+  app.get('/lora/models/:name/loras', async (req, res) => {
+    await listLoraAdapters(req, res);
+  });
+  app.post('/lora/load', async (req, res) => {
+    await loadLoraModel(req, res);
+  });
+
   // Hardware optimization profile
   app.post('/optimize/hw/run', async (req, res) => {
     await runHwOptimizeUseCase(req, res, deps);
@@ -256,13 +272,7 @@ export default function registerRoutes(app, deps) {
     await getHwProfileUseCase(req, res);
   });
 
-  // Runtime control for llama-server
-  app.post('/runtime/llama/start', async (req, res) => {
-    await startLlamaServerUseCase(req, res);
-  });
-  app.post('/runtime/llama/stop', async (req, res) => {
-    await stopLlamaServerUseCase(req, res);
-  });
+  // Removed llama runtime endpoints
 
   // Compression endpoints
   app.post(

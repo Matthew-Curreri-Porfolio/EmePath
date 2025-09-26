@@ -10,10 +10,6 @@ import {
   getHwProfileUseCase,
 } from '../usecases/optimize.js';
 import {
-  startLlamaServerUseCase,
-  stopLlamaServerUseCase,
-} from '../usecases/runtime.js';
-import {
   compressShortToLongUseCase,
   compressLongGlobalUseCase,
 } from '../usecases/compress.js';
@@ -82,12 +78,7 @@ export function registerAgentic(app, deps, limiters = {}) {
   app.get('/optimize/hw', async (req, res) => {
     await getHwProfileUseCase(req, res);
   });
-  app.post('/runtime/llama/start', async (req, res) => {
-    await startLlamaServerUseCase(req, res);
-  });
-  app.post('/runtime/llama/stop', async (req, res) => {
-    await stopLlamaServerUseCase(req, res);
-  });
+  // Removed llama runtime endpoints
 
   // Curated + Research
   app.get(

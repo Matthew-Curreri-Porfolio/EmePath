@@ -9,6 +9,6 @@ export default defineConfig({
     include: ['tests/**/*.test.{js,ts}'],
     exclude: ['rooms/tests/**', 'memory/tests/**', 'node_modules/**'],
     // Start the llama stub server for streaming + plan tests
-    setupFiles: ['../tests/setup/start-llama-server.js'],
+    setupFiles: [],
   },
 });

@@ -35,7 +35,8 @@
     "searx:compose:down": "docker compose -f scripts/docker-compose.searxng.yml down || docker-compose -f scripts/docker-compose.searxng.yml down",
     "searx:logs": "docker compose -f scripts/docker-compose.searxng.yml logs --tail 10 || docker-compose -f scripts/docker-compose.searxng.yml logs --tail 10",
     "models:resolve": "node scripts/resolve-models.js",
-    "prompts:preview": "node scripts/preview-prompt.mjs --"
+    "prompts:preview": "node scripts/preview-prompt.mjs --",
+    "chat:cli": "node gateway/scripts/chat-cli.js --"
   },
   "devDependencies": {
     "eslint": "^9.36.0",

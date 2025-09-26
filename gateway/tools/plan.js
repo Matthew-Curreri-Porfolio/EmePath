@@ -1,7 +1,7 @@
 // gateway/tools/plan.js
 // Generate a safe, verifiable runbook grounded in local/web context.
 
-import { chat as llmChat } from '../lib/llm.js';
+import { chat as llmChat } from '../lib/lora_client.js';
 import { insightsEngine } from './insights.js';
 import { composeSystem } from '../prompts/compose.js';
 import { makeSnippets } from '../utils.js';

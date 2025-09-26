@@ -33,11 +33,19 @@ export const QuerySchema = z.object({
   k: z.number().int().positive().max(50).optional(),
 });
 
-export const WarmupSchema = z.object({
-  model: z.string().min(1),
-  keepAlive: z.string().optional(),
-  timeoutMs: z.number().int().positive().optional(),
-});
+export const WarmupSchema = z
+  .object({
+    model: z.string().min(1).optional(),
+    name: z.string().min(1).optional(),
+    model_path: z.string().min(1).optional(),
+    lora_paths: z.record(z.string()).optional(),
+    keepAlive: z.string().optional(),
+    timeoutMs: z.number().int().positive().optional(),
+  })
+  .refine((d) => Boolean(d.model || d.model_path || d.name), {
+    message: 'model or model_path is required',
+    path: ['model'],
+  });
 
 export const MemoryWriteSchema = z.object({
   memid: z.string().min(1).optional(),

@@ -2,7 +2,7 @@
 // Build a lightweight knowledge graph from web/local evidence.
 
 import { researchWeb } from './research.js';
-import { chat as llmChat } from '../lib/llm.js';
+import { chat as llmChat } from '../lib/lora_client.js';
 import { composeSystem } from '../prompts/compose.js';
 import { makeSnippets } from '../utils.js';
 

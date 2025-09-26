@@ -5,7 +5,7 @@
 
 import { researchWeb } from './research.js';
 import { makeSnippets } from '../utils.js';
-import { chat as llmChat } from '../lib/llm.js';
+import { chat as llmChat } from '../lib/lora_client.js';
 import { composeSystem } from '../prompts/compose.js';
 
 function stripTags(html) {

@@ -1,7 +1,7 @@
 // gateway/tools/forecast.js
 // Forecasting: seed predictions and resolve outcomes periodically.
 
-import { chat as llmChat } from '../lib/llm.js';
+import { chat as llmChat } from '../lib/lora_client.js';
 import { insightsEngine } from './insights.js';
 import { composeSystem } from '../prompts/compose.js';
 import { researchWeb } from './research.js';

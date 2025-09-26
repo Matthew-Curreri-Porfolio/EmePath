@@ -12,11 +12,15 @@ import { modelRoots, manifestRoots, blobPathForDigest, resolvePython } from '../
 import { getConfig } from '../gateway/config/index.js';
 
 const ROOT = process.cwd();
+// llama.cpp binaries (temporarily unused; kept for future fallback)
 const BIN_SERVER = process.env.LLAMACPP_BIN || path.join(ROOT, 'llama.cpp/build/bin/llama-server');
 const BIN_GGUF = process.env.LLAMA_GGUF_BIN || path.join(ROOT, 'llama.cpp/build/bin/llama-gguf');
 const CFG = getConfig();
 const LLAMACPP_PORT = CFG.ports.llamacpp;
 const OLLAMA_PROXY_PORT = CFG.ports.ollamaProxy;
+const LORA_SERVER_PORT = Number(process.env.LORA_SERVER_PORT || 8000);
+const DEFAULT_UNSLOTH_BASE = process.env.DEFAULT_UNSLOTH_BASE || 'unsloth/Qwen2.5-7B';
+const DEFAULT_UNSLOTH_4BIT = process.env.DEFAULT_UNSLOTH_4BIT || 'unsloth/Qwen2.5-7B-Instruct-bnb-4bit';
 const GATEWAY_PORT = CFG.ports.gateway;
 const SEARXNG_BASE = CFG.searxng.base;
 const SEARXNG_PORT = Number(process.env.SEARXNG_PORT || 8888);
@@ -391,8 +395,16 @@ async function ensureSearxng() {
   return { child: null, base, failed: true };
 }
 
-async function startGateway(llamaBase) {
-  const env = { ...process.env, LLAMACPP_SERVER: llamaBase, SEARXNG_BASE, GATEWAY_PORT: String(GATEWAY_PORT) };
+async function startGateway(loraBase) {
+  const env = {
+    ...process.env,
+    LORA_SERVER_BASE: loraBase,
+    SEARXNG_BASE,
+    GATEWAY_PORT: String(GATEWAY_PORT),
+    // Provide sensible defaults for Unsloth HF models if not set
+    LORA_MODEL_NAME: process.env.LORA_MODEL_NAME || 'qwen3-7b',
+    LORA_MODEL_PATH: process.env.LORA_MODEL_PATH || DEFAULT_UNSLOTH_BASE,
+  };
   const entry = path.join(ROOT, 'gateway/server.js');
   const base = `http://127.0.0.1:${GATEWAY_PORT}`;
   if (await httpOk(`${base}/health`)) {
@@ -402,6 +414,21 @@ async function startGateway(llamaBase) {
   log({ event: 'start_gateway', port: GATEWAY_PORT });
   const child = startProcess('node', [entry], { env });
   for (let i = 0; i < 20; i++) { if (await httpOk(`${base}/health`)) break; await sleep(500); }
+  return { child, base };
+}
+
+// Start the Python LoRA server (FastAPI) on LORA_SERVER_PORT
+async function startLoraServer() {
+  const py = resolvePython();
+  const script = path.join(ROOT, 'gateway/lora_server.py');
+  const base = `http://127.0.0.1:${LORA_SERVER_PORT}`;
+  if (await httpOk(`${base}/models`)) {
+    log({ event: 'reuse_lora_server', base });
+    return { child: null, base };
+  }
+  log({ event: 'start_lora_server', py, port: LORA_SERVER_PORT });
+  const child = startProcess(py, [script], { env: { ...process.env, PORT: String(LORA_SERVER_PORT) } });
+  for (let i = 0; i < 60; i++) { if (await httpOk(`${base}/models`)) break; await sleep(1000); }
   return { child, base };
 }
 
@@ -553,9 +580,10 @@ async function main() {
   }
 
   if (argv.has('--start')) {
+    // If a previous stack is running, stop it first to avoid orphaned processes
     if (exists(PID_FILE)) {
-      console.error('Stack is already running (PID file exists). Run "npm run stack:stop" first.');
-      process.exit(1);
+      console.log('Existing stack detected. Stopping before start...');
+      await stopStack();
     }
 
     const args = process.argv.slice(1).filter(a => a !== '--start');
@@ -590,20 +618,13 @@ async function main() {
       log({ event: 'check_complete', ok: true, skipped: 'llama_gateway' });
       return process.exit(0);
     }
-    const modelPath = await pickModel();
-    log({ event: 'model_selected', modelPath, size: sizeOf(modelPath) });
-    startup.push('model selected', { level: 'ok' });
-    const { child: llamaProc, base: llamaBase } = await startLlamaServer(modelPath);
-    pids.llama = llamaProc?.pid;
+    // Start LoRA server (Python) instead of llama.cpp/ollama
+    const { child: loraProc, base: loraBase } = await startLoraServer();
+    pids.lora = loraProc?.pid;
     fs.writeFileSync(PID_FILE, JSON.stringify(pids, null, 2));
 
-    startup.push('llama server ready', { level: 'ok' });
-    const { child: ollamaProc, base: ollamaBase } = await startOllamaProxy(llamaBase);
-    pids.ollama = ollamaProc?.pid;
-    fs.writeFileSync(PID_FILE, JSON.stringify(pids, null, 2));
-
-    startup.push('ollama proxy ready', { level: 'ok' });
-    const { child: gwProc, base: gwBase } = await startGateway(llamaBase);
+    startup.push('lora server ready', { level: 'ok' });
+    const { child: gwProc, base: gwBase } = await startGateway(loraBase);
     pids.gateway = gwProc?.pid;
     fs.writeFileSync(PID_FILE, JSON.stringify(pids, null, 2));
 
@@ -612,23 +633,40 @@ async function main() {
     if (checkOnly) {
       const ok = await httpOk(`${gwBase}/health`);
       log({ event: 'check_complete', ok });
-      // In check mode, leave llama-server running by default (configurable)
-      if (!CFG.runtime.keepLlamaOnExit) { try { llamaProc?.kill('SIGTERM'); } catch {} }
-      try { ollamaProc?.kill('SIGTERM'); } catch {}
+      // In check mode, shut down processes
+      try { loraProc?.kill('SIGTERM'); } catch {}
       try { gwProc?.kill('SIGTERM'); } catch {}
       return process.exit(ok ? 0 : 1);
     }
 
     // Quick smoke checks
-    startup.push('ping llama chat...', { level: 'info' });
-    const chatR = await fetch(`${llamaBase}/v1/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: 'default', messages: [{ role: 'user', content: 'Say hi' }], max_tokens: 8 }) });
-    log({ event: 'llama_chat_status', status: chatR.status });
-    if (chatR.ok) startup.push('llama chat 200', { level: 'ok' }); else startup.push(`llama chat ${chatR.status}`, { level: 'warn' });
-    startup.push('proxy tags...', { level: 'info' });
-    const tagsR = await fetch(`${ollamaBase}/api/tags`).then(r => r.json()).catch(() => ({}));
-    log({ event: 'ollama_tags_count', count: Array.isArray(tagsR?.models) ? tagsR.models.length : 0 });
-    const tagCount = Array.isArray(tagsR?.models) ? tagsR.models.length : 0;
-    startup.push(`proxy tags ${tagCount}`, { level: 'ok' });
+    // Optional LoRA quick check
+    startup.push('lora models...', { level: 'info' });
+    try {
+      const ms = await fetch(`${loraBase}/models`).then(r => r.json());
+      const mcount = Array.isArray(ms?.models) ? ms.models.length : 0;
+      startup.push(`lora models ${mcount}`, { level: 'ok' });
+    } catch { startup.push('lora models error', { level: 'warn' }); }
+
+    // Proactively warmup base model (downloads from HF if needed)
+    startup.push('warming up lora base model...', { level: 'info' });
+    try {
+      const body = {
+        name: process.env.LORA_MODEL_NAME || 'qwen3-7b',
+        model_path: process.env.LORA_MODEL_PATH || DEFAULT_UNSLOTH_BASE,
+      };
+      const wr = await fetch(`${gwBase}/warmup`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      startup.push(`warmup base ${wr.status}`, { level: wr.ok ? 'ok' : 'warn' });
+    } catch { startup.push('warmup base error', { level: 'warn' }); }
+
+    // Optionally warmup 4-bit variant if requested
+    if (String(process.env.LORA_LOAD_4BIT || '0') === '1') {
+      startup.push('warming up lora 4bit model...', { level: 'info' });
+      try {
+        const wr2 = await fetch(`${gwBase}/warmup`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'qwen3-7b-4bit', model_path: DEFAULT_UNSLOTH_4BIT }) });
+        startup.push(`warmup 4bit ${wr2.status}`, { level: wr2.ok ? 'ok' : 'warn' });
+      } catch { startup.push('warmup 4bit error', { level: 'warn' }); }
+    }
     startup.push('gateway models...', { level: 'info' });
     try {
       const modelsJ = await fetch(`${gwBase}/models`).then(r => r.json());
@@ -647,7 +685,7 @@ async function main() {
     log({ event: 'gateway_health', ok: healthR?.ok === true });
     if (healthR?.ok) startup.push('gateway OK', { level: 'ok' }); else startup.push('gateway not ready', { level: 'error', isError: true });
 
-    log({ event: 'stack_ready', llamaBase, ollamaBase, gwBase, searxng: SEARXNG_BASE });
+    log({ event: 'stack_ready', loraBase, gwBase, searxng: SEARXNG_BASE });
     // Kick a warmup with streaming feedback in the background (best-effort)
     streamWarmupWithFeedback(gwBase, { timeoutMs: 15000 }).catch(() => {});
 
@@ -655,8 +693,7 @@ async function main() {
     const shutdown = () => {
       log({ event: 'shutdown' });
       // Leave llama-server running unless explicitly disabled via config
-      if (!CFG.runtime.keepLlamaOnExit) { try { llamaProc?.kill('SIGTERM'); } catch {} }
-      try { ollamaProc.kill('SIGTERM'); } catch {}
+      try { loraProc?.kill('SIGTERM'); } catch {}
       try { gwProc.kill('SIGTERM'); } catch {}
       try { fs.unlinkSync(PID_FILE); } catch {}
     };

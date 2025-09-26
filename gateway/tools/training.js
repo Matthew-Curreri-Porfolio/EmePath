@@ -1,7 +1,7 @@
 // gateway/tools/training.js
 // Orchestrated self-training loop using insights, debate, plan, and a grader.
 
-import { chat as llmChat } from '../lib/llm.js';
+import { chat as llmChat } from '../lib/lora_client.js';
 import { insightsEngine } from './insights.js';
 import { debateEngine } from './debate.js';
 import { planEngine } from './plan.js';

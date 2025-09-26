@@ -19,6 +19,6 @@ export default defineConfig({
       'node_modules/**',
     ],
     environment: 'node',
-    setupFiles: ['tests/setup/start-llama-server.js'],
+    setupFiles: [],
   },
 });
