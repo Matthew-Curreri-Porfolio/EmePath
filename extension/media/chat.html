@@ -4,12 +4,12 @@
     <meta charset="UTF-8" />
     <meta http-equiv="Content-Security-Policy" content="{{CSP}}" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Codexz Chat</title>
+    <title>EmePath</title>
     <style>
       body {
         font-family: 'Segoe UI', 'Fira Sans', 'system-ui', sans-serif;
         margin: 0;
-        background: #181a20;
+        background: #121212;
         color: #e6e6e6;
         letter-spacing: 0.01em;
       }
@@ -17,196 +17,163 @@
         display: grid;
         grid-template-rows: auto 1fr auto;
         height: 100vh;
-        max-width: 700px;
+        max-width: 800px;
         margin: 0 auto;
-        box-shadow: 0 2px 16px 0 #000a;
-        border-radius: 14px;
-        background: #1b1e24;
-        border: 1px solid #23263a;
+        box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.4);
+        border-radius: 16px;
+        background: #1e1e1e;
+        border: 1px solid #2d2d2d;
       }
       #hdr {
-        padding: 14px 20px 8px 20px;
-        border-bottom: 1px solid #23263a;
+        padding: 16px 24px;
+        border-bottom: 1px solid #2d2d2d;
         color: #a0a8c0;
-        font-size: 13px;
-        background: #181a20;
-        border-top-left-radius: 14px;
-        border-top-right-radius: 14px;
+        font-size: 14px;
+        background: #1a1a1a;
+        border-top-left-radius: 16px;
+        border-top-right-radius: 16px;
       }
       #msgs {
-        padding: 18px 20px;
+        padding: 20px 24px;
         overflow-y: auto;
-        background: #1b1e24;
+        background: #1e1e1e;
       }
       .msg {
-        margin: 12px 0;
-        padding: 14px 18px;
-        border-radius: 12px;
-        max-width: 80%;
+        margin: 14px 0;
+        padding: 16px 20px;
+        border-radius: 14px;
+        max-width: 85%;
         white-space: pre-wrap;
-        font-size: 15px;
-        box-shadow: 0 1px 6px 0 #0002;
+        font-size: 16px;
+        box-shadow: 0 2px 8px 0 rgba(0, 0, 0, 0.2);
         transition: background 0.2s;
       }
       .user {
-        background: linear-gradient(90deg, #23263a 60%, #1b1e2b 100%);
-        margin-left: 20%;
-        border: 1px solid #23263a;
+        background: linear-gradient(90deg, #2a2a2a 60%, #1e1e1e 100%);
+        margin-left: 15%;
+        border: 1px solid #3a3a3a;
       }
       .assistant {
-        background: linear-gradient(90deg, #23263a 60%, #13151f 100%);
-        border: 1px solid #23263a;
-        margin-right: 20%;
+        background: linear-gradient(90deg, #2a2a2a 60%, #1a1a1a 100%);
+        border: 1px solid #3a3a3a;
+        margin-right: 15%;
       }
       #input {
         display: flex;
-        gap: 10px;
-        padding: 16px 20px;
-        border-top: 1px solid #23263a;
-        background: #181a20;
-        border-bottom-left-radius: 14px;
-        border-bottom-right-radius: 14px;
+        gap: 12px;
+        padding: 20px 24px;
+        border-top: 1px solid #2d2d2d;
+        background: #1a1a1a;
+        border-bottom-left-radius: 16px;
+        border-bottom-right-radius: 16px;
       }
       #text {
         flex: 1;
         resize: none;
-        height: 56px;
-        background: #23263a;
+        height: 60px;
+        background: #2d2d2d;
         color: #e6e6e6;
-        border: 1px solid #2a2f45;
-        border-radius: 8px;
-        padding: 10px;
-        font-size: 15px;
-        box-shadow: 0 1px 4px 0 #0002;
+        border: 1px solid #3a3a3a;
+        border-radius: 10px;
+        padding: 12px;
+        font-size: 16px;
+        box-shadow: 0 2px 6px 0 rgba(0, 0, 0, 0.2);
         transition: border 0.2s;
       }
       #text:focus {
-        border: 1.5px solid #3b82f6;
+        border: 1.5px solid #4a90e2;
         outline: none;
       }
       button {
-        background: linear-gradient(90deg, #3b82f6 80%, #2563eb 100%);
+        background: linear-gradient(90deg, #4a90e2 80%, #357abd 100%);
         color: #fff;
         border: none;
-        padding: 10px 18px;
-        border-radius: 8px;
+        padding: 12px 20px;
+        border-radius: 10px;
         cursor: pointer;
-        font-size: 15px;
+        font-size: 16px;
         font-weight: 500;
-        box-shadow: 0 1px 4px 0 #0002;
+        box-shadow: 0 2px 6px 0 rgba(0, 0, 0, 0.2);
         transition:
           background 0.2s,
           box-shadow 0.2s;
       }
       button:disabled {
-        opacity: 0.6;
-        cursor: wait;
+        opacity: 0.5;
+        cursor: not-allowed;
       }
       button#refresh,
       button#scan,
       button#term {
-        background: #23263a;
+        background: #2d2d2d;
         color: #e6e6e6;
-        border: 1px solid #2a2f45;
+        border: 1px solid #3a3a3a;
         font-size: 14px;
-        padding: 8px 12px;
+        padding: 10px 14px;
         box-shadow: none;
       }
       button#load {
-        background: linear-gradient(90deg, #16a34a 80%, #22c55e 100%);
+        background: linear-gradient(90deg, #50c878 80%, #40a060 100%);
         color: #fff;
         border: none;
         font-size: 14px;
-        padding: 8px 14px;
+        padding: 10px 16px;
       }
       select {
-        background: #23263a;
+        background: #2d2d2d;
         color: #e6e6e6;
-        border: 1px solid #2a2f45;
-        border-radius: 6px;
-        padding: 6px 10px;
+        border: 1px solid #3a3a3a;
+        border-radius: 8px;
+        padding: 8px 12px;
         font-size: 14px;
-        margin-right: 4px;
+        margin-right: 6px;
       }
       .row {
         display: flex;
-        gap: 10px;
+        gap: 12px;
         align-items: center;
-        margin-top: 8px;
+        margin-top: 10px;
         flex-wrap: wrap;
       }
       label.inline {
         display: flex;
         align-items: center;
-        gap: 8px;
-        margin-left: 10px;
-        font-size: 13px;
+        gap: 10px;
+        margin-left: 12px;
+        font-size: 14px;
         color: #a0a8c0;
       }
     </style>
   </head>
   <body>
     <div id="wrap">
-      <div id="hdr">
+      <header id="hdr">
         <div>
           Gateway: <span id="gw"></span> • <span id="status">checking…</span>
         </div>
         <div class="row">
-          <label for="model" style="font-size: 12px; color: #a0a8c0"
-            >Model</label
-          >
+          <label for="model" style="font-size: 12px; color: #a0a8c0">Model</label>
           <select id="model"></select>
-          <button
-            id="refresh"
-            title="Refresh models"
-            style="background: #2a2f45; color: #e6e6e6"
-          >
-            ↻
-          </button>
-          <button
-            id="load"
-            title="Load model into RAM"
-            style="background: #16a34a; color: #fff"
-          >
-            Load
-          </button>
-          <label class="inline"
-            ><input type="checkbox" id="useCtx" /> Use repo context</label
-          >
-          <button
-            id="scan"
-            title="Scan workspace"
-            style="background: #2a2f45; color: #e6e6e6"
-          >
-            Scan
-          </button>
-          <button
-            id="term"
-            title="Open terminal"
-            style="background: #2a2f45; color: #e6e6e6"
-          >
-            Terminal
-          </button>
-          <label class="inline"
-            ><input type="checkbox" id="useStream" /> Use streaming</label
-          >
+          <button id="refresh" title="Refresh models" style="background: #3a3a3a; color: #e6e6e6">↻</button>
+          <button id="load" title="Load model into RAM" style="background: #50c878; color: #fff">Load</button>
+          <label class="inline"><input type="checkbox" id="useCtx" /> Use repo context</label>
+          <button id="scan" title="Scan workspace" style="background: #3a3a3a; color: #e6e6e6">Scan</button>
+          <button id="term" title="Open terminal" style="background: #3a3a3a; color: #e6e6e6">Terminal</button>
+          <label class="inline"><input type="checkbox" id="useStream" /> Use streaming</label>
         </div>
-      </div>
+      </header>
 
-      <div id="msgs"></div>
+      <main id="msgs"></main>
 
-      <div id="input">
-        <textarea
-          id="text"
-          placeholder="Type a message… Ctrl+Enter to send"
-        ></textarea>
+      <footer id="input">
+        <textarea id="text" placeholder="Type a message… Ctrl+Enter to send"></textarea>
         <button id="send">Send</button>
-      </div>
+      </footer>
     </div>
 
     <script nonce="{{NONCE}}">
       const vscodeApi = acquireVsCodeApi();
-      const DBG = (...a) => console.log('[codexz-webview]', ...a);
+      const DBG = (...a) => console.log('[EmePath-webview]', ...a);
       const GATEWAY = '{{GATEWAY}}';
 
       const msgsEl = document.getElementById('msgs');
@@ -225,7 +192,7 @@
       document.getElementById('gw').textContent = GATEWAY;
 
       let messages = [];
-      let currentModel = localStorage.getItem('codexz:model') || '';
+      let currentModel = localStorage.getItem('EmePath:model') || '';
 
       // ---------- helpers ----------
       function push(role, content) {
@@ -234,6 +201,7 @@
         el.textContent = content;
         msgsEl.appendChild(el);
         msgsEl.scrollTop = msgsEl.scrollHeight;
+        return el;
       }
 
       async function ping() {
@@ -263,10 +231,10 @@
           } else if (names.length) {
             currentModel = names[0];
             modelSel.value = currentModel;
-            localStorage.setItem('codexz:model', currentModel);
+            localStorage.setItem('EmePath:model', currentModel);
           }
           statusEl.textContent = (statusEl.textContent || 'connected').replace(
-            /(\s•\smodel:.*)?$/,
+            /(\s•\smodel:.*)?$/, 
             ` • model: ${currentModel || '—'}`
           );
         } catch {
@@ -281,9 +249,9 @@
 
       modelSel.addEventListener('change', () => {
         currentModel = modelSel.value;
-        localStorage.setItem('codexz:model', currentModel);
+        localStorage.setItem('EmePath:model', currentModel);
         statusEl.textContent = (statusEl.textContent || 'connected').replace(
-          /(\s•\smodel:.*)?$/,
+          /(\s•\smodel:.*)?$/, 
           ` • model: ${currentModel || '—'}`
         );
       });
@@ -321,7 +289,7 @@
         } finally {
           loadBtn.disabled = false;
           statusEl.textContent = (statusEl.textContent || 'connected').replace(
-            /(\s•\smodel:.*)?$/,
+            /(\s•\smodel:.*)?$/, 
             ` • model: ${currentModel || '—'}`
           );
         }
@@ -361,7 +329,10 @@
         let out = '';
         for (const h of hits) {
           for (const sn of h.snippets || []) {
-            out += `\n=== ${h.path}:${sn.lineStart}-${sn.lineEnd} ===\n${sn.text}\n`;
+            out += `
+=== ${h.path}:${sn.lineStart}-${sn.lineEnd} ===
+${sn.text}
+`;
             if (out.length > 12000) return out;
           }
         }
@@ -401,7 +372,8 @@
                 {
                   role: 'system',
                   content:
-                    'You are a coding assistant. Use ONLY the repository context below when answering. If context is insufficient, say so briefly.\n' +
+                    'You are a coding assistant. Use ONLY the repository context below when answering. If context is insufficient, say so briefly.
+' +
                     ctx,
                 },
                 ...messages,
@@ -496,7 +468,7 @@
             const run = document.createElement('button');
             run.textContent = 'Run in terminal';
             run.style.marginTop = '6px';
-            run.style.background = '#2a2f45';
+            run.style.background = '#3a3a3a';
             run.style.color = '#e6e6e6';
             run.addEventListener('click', () => {
               const ok = confirm(

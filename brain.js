@@ -5,6 +5,8 @@
 import { log as gwLog } from './gateway/utils.js';
 import { getConfig } from './gateway/config/index.js';
 import db from './gateway/db/db.js';
+import fs from 'fs';
+import path from 'path';
 
 let CFG;
 try { CFG = getConfig(); } catch { CFG = { ports: { gateway: 3123 } }; }
@@ -24,9 +26,28 @@ export class Brain {
     return {
       chat: async ({ messages, temperature = 0.2, maxTokens = 1024, timeoutMs = 20000 }) => {
         const mod = await import('./gateway/lib/lora_client.js');
-        return mod.chat({ messages, temperature, maxTokens, timeoutMs });
+        const loraModel = this._defaultModelConfig();
+        return mod.chat({ messages, temperature, maxTokens, timeoutMs, loraModel });
       },
     };
+  }
+
+  _defaultModelConfig() {
+    // Prefer env if set
+    const envPath = process.env.LORA_MODEL_PATH;
+    const envName = process.env.LORA_MODEL_NAME;
+    if (envPath && envPath.trim()) {
+      return { name: envName || 'default', model_path: envPath };
+    }
+    // Fallback candidates (largest uncensored local model path if present)
+    const candidates = [
+      path.resolve(process.cwd(), 'gateway', 'models', 'base', 'gpt_unlocked', 'OpenAI-20B-NEO-Uncensored2-IQ4_NL.gguf'),
+    ];
+    for (const p of candidates) {
+      try { if (fs.existsSync(p)) return { name: 'neo20b-uncensored', model_path: p }; } catch {}
+    }
+    // No local model found
+    return { name: envName || 'default', model_path: envPath || '' };
   }
 
   createSession({ userId, projectId }) {

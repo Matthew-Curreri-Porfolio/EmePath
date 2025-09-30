@@ -713,7 +713,72 @@ export default {
   createProject,
   listProjects,
   setProjectActive,
+  upsertAgentState,
+  listAgentStates,
+  insertJob,
+  updateJob,
   run,
   get,
   all,
 };
+
+// ---------- Agents/Jobs helpers ----------
+
+export function upsertAgentState(userId, workspaceId, agent) {
+  const id = String(agent.id);
+  const now = new Date().toISOString();
+  run(
+    `INSERT INTO agents_state (id, user_id, workspace_id, goal, input, expected, status, last_check_in, eots, note, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       user_id=excluded.user_id,
+       workspace_id=excluded.workspace_id,
+       goal=excluded.goal,
+       input=excluded.input,
+       expected=excluded.expected,
+       status=excluded.status,
+       last_check_in=excluded.last_check_in,
+       eots=excluded.eots,
+       note=excluded.note,
+       updated_at=excluded.updated_at
+    `,
+    [
+      id,
+      userId,
+      String(workspaceId || 'default'),
+      agent.goal || null,
+      agent.input || null,
+      agent.expected || null,
+      agent.status || null,
+      agent.lastCheckIn || now,
+      typeof agent.eots === 'number' ? agent.eots : null,
+      agent.lastNote || null,
+      now,
+      now,
+    ]
+  );
+}
+
+export function listAgentStates(userId, workspaceId) {
+  const rows = all(
+    `SELECT id, user_id, workspace_id, goal, input, expected, status, last_check_in, eots, note, created_at, updated_at
+     FROM agents_state WHERE user_id = ? AND workspace_id = ? ORDER BY datetime(updated_at) DESC`,
+    [userId, String(workspaceId || 'default')]
+  );
+  return rows;
+}
+
+export function insertJob({ id, userId, workspaceId, status = 'pending', meta = null, startedAt = null }) {
+  run(
+    `INSERT OR REPLACE INTO jobs (id, user_id, workspace_id, status, meta, started_at)
+     VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))`,
+    [id, userId ?? null, String(workspaceId || 'default'), String(status), meta ? JSON.stringify(meta) : null, startedAt]
+  );
+}
+
+export function updateJob(id, { status, error, meta, finishedAt = null }) {
+  run(
+    `UPDATE jobs SET status = COALESCE(?, status), error = COALESCE(?, error), meta = COALESCE(?, meta), finished_at = COALESCE(?, finished_at) WHERE id = ?`,
+    [status ? String(status) : null, error ? String(error) : null, meta ? JSON.stringify(meta) : null, finishedAt || null, id]
+  );
+}
