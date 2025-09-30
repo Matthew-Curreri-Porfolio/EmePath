@@ -1,4 +1,4 @@
-## OSS Codex — Monorepo Overview
+## EmePath — Monorepo Overview
 
 This repo hosts the local inference gateway, prompt system, and supporting tools to run and test a self‑hosted LLM stack. The `gateway/` subproject can be used standalone.
 
@@ -76,7 +76,7 @@ curl "http://127.0.0.1:3123/prompts/preview?key=plan.system&envOs=linux"
 ### CI
 
 GitHub Actions workflow runs `npm ci`, a lightweight stack check, and `vitest` tests.
-# EmePath Service (LLM/Agent Orchestrator)
+# EmePath (LLM/Agent Orchestrator)
 
 EmePath turns freeform text into actionable plans and kind‑aware agents (distill / scan / query) that operate on your local environment. It exposes a small HTTP API and uses a LoRA‑backed LLM if configured.
 
