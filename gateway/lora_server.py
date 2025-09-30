@@ -50,7 +50,7 @@ Notes
   internally.
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 from fastapi import FastAPI, HTTPException
 import logging
@@ -75,6 +75,11 @@ import time
 import json
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
+
+try:
+    import torch
+except Exception:  # pragma: no cover - handled at runtime
+    torch = None
 
 
 def _lazy_import_hf() -> bool:
@@ -179,6 +184,64 @@ def _truthy(value: Optional[str]) -> bool:
     if value is None:
         return False
     return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def _resolve_device_map() -> Optional[str]:
+    device_map = os.getenv('LORA_DEVICE_MAP', 'auto').strip().lower()
+    if device_map in {'none', 'off', 'disable'}:
+        return None
+    if device_map in {'auto', 'balanced', 'balanced_low_0', 'sequential'}:
+        return device_map
+    if device_map in {'cpu'}:
+        return 'cpu'
+    if device_map in {'cuda', 'gpu'}:
+        return 'auto'
+    return 'auto'
+
+
+def _resolve_torch_dtype() -> Optional['torch.dtype']:
+    if torch is None:
+        return None
+    dtype_env = os.getenv('LORA_TORCH_DTYPE', 'auto').strip().lower()
+    if dtype_env in {'auto', ''}:
+        if torch.cuda.is_available():
+            if torch.cuda.is_bf16_supported():
+                return torch.bfloat16
+            return torch.float16
+        return torch.float32
+    mapping = {
+        'bf16': torch.bfloat16,
+        'bfloat16': torch.bfloat16,
+        'fp16': torch.float16,
+        'float16': torch.float16,
+        'half': torch.float16,
+        'fp32': torch.float32,
+        'float32': torch.float32,
+    }
+    return mapping.get(dtype_env, torch.float32)
+
+
+def _infer_generation_device(model) -> Optional['torch.device']:
+    if torch is None:
+        return None
+    if hasattr(model, 'device'):
+        try:
+            return torch.device(model.device)
+        except Exception:
+            pass
+    if hasattr(model, 'hf_device_map'):
+        devices: Set[str] = set()
+        for dev in model.hf_device_map.values():
+            if isinstance(dev, str) and dev not in {'disk'}:
+                devices.add(dev)
+        if devices:
+            target = sorted(devices)[0]
+            return torch.device(target)
+    try:
+        first_param = next(model.parameters())
+        return first_param.device
+    except Exception:
+        return torch.device('cpu' if torch.cuda.is_available() is False else 'cuda')
 
 
 def _start_gguf_python(model_file: str) -> Dict[str, object]:
@@ -326,13 +389,23 @@ class LoadModelRequest(BaseModel):
 
 
 class InferenceRequest(BaseModel):
-    """Payload for running inference with a selected model and adapter."""
+    """Payload for running inference with a selected model and adapter.
+
+    Prefer structured chat `messages` for HF backends so we can apply the
+    tokenizer's chat template. Falls back to `prompt` when messages are not
+    provided.
+    """
 
     model_name: str
     lora_name: str
-    prompt: str
-    max_new_tokens: Optional[int] = 128
-    temperature: Optional[float] = 0.7
+    prompt: Optional[str] = None
+    messages: Optional[List[Dict[str, str]]] = None
+    max_new_tokens: Optional[int] = None
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    repetition_penalty: Optional[float] = None
+    deterministic: Optional[bool] = None
 
 
 @app.post("/load_model")
@@ -360,11 +433,42 @@ async def load_model(req: LoadModelRequest):
         return {"status": "loaded", "model_name": model_name, "via": "gguf-python", "loras": []}
 
     # HF flow: require transformers/peft
+    if torch is None:
+        raise HTTPException(status_code=500, detail="PyTorch is required for HF models. Install 'torch' with CUDA support.")
     if not _lazy_import_hf():
         raise HTTPException(status_code=500, detail="HF backend not available (install 'transformers' and 'peft' or use a .gguf model)")
     try:
-        tokenizer = AutoTokenizer.from_pretrained(req.model_path)
-        base_model = AutoModelForCausalLM.from_pretrained(req.model_path)
+        dtype = _resolve_torch_dtype()
+        device_map = _resolve_device_map()
+        trust_remote_code = _truthy(os.getenv('LORA_TRUST_REMOTE_CODE'))
+        tokenizer = AutoTokenizer.from_pretrained(
+            req.model_path,
+            padding_side='left',
+            truncation_side='left',
+            trust_remote_code=trust_remote_code,
+        )
+        if tokenizer.pad_token is None and tokenizer.eos_token is not None:
+            tokenizer.pad_token = tokenizer.eos_token
+        load_kwargs: Dict[str, object] = {
+            'device_map': device_map,
+            'trust_remote_code': trust_remote_code,
+        }
+        if dtype is not None:
+            load_kwargs['dtype'] = dtype
+        base_model = AutoModelForCausalLM.from_pretrained(req.model_path, **load_kwargs)
+        if torch.cuda.is_available():
+            try:
+                torch.backends.cuda.matmul.allow_tf32 = True
+            except Exception:
+                pass
+        base_model.eval()
+        logger.info(
+            "Loaded HF model %s from %s (device_map=%s, dtype=%s)",
+            req.name,
+            req.model_path,
+            device_map,
+            dtype,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load base model: {e}")
 
@@ -420,9 +524,34 @@ async def inference(req: InferenceRequest):
     """
     model_name = req.model_name
     lora_name = req.lora_name
-    prompt = req.prompt
-    max_new_tokens = req.max_new_tokens
-    temperature = req.temperature
+    prompt = req.prompt or ''
+    # Defaults via env, override by request
+    def _float_env(name: str, default: Optional[float]) -> Optional[float]:
+        try:
+            v = os.getenv(name)
+            return float(v) if v is not None and v != '' else default
+        except Exception:
+            return default
+
+    def _int_env(name: str, default: Optional[int]) -> Optional[int]:
+        try:
+            v = os.getenv(name)
+            return int(v) if v is not None and v != '' else default
+        except Exception:
+            return default
+
+    max_new_tokens = req.max_new_tokens if req.max_new_tokens is not None else _int_env('LORA_DEFAULT_MAX_NEW_TOKENS', 256)
+    temperature = req.temperature if req.temperature is not None else _float_env('LORA_DEFAULT_TEMPERATURE', 0.2)
+    top_p = req.top_p if req.top_p is not None else _float_env('LORA_DEFAULT_TOP_P', 0.9)
+    top_k = req.top_k if req.top_k is not None else _int_env('LORA_DEFAULT_TOP_K', None)
+    repetition_penalty = (
+        req.repetition_penalty if req.repetition_penalty is not None else _float_env('LORA_DEFAULT_REPETITION_PENALTY', 1.1)
+    )
+    deterministic = (
+        bool(req.deterministic)
+        if req.deterministic is not None
+        else _truthy(os.getenv('LORA_DETERMINISTIC'))
+    )
 
     # Validate that the requested model exists.
     if model_name not in _models:
@@ -458,13 +587,71 @@ async def inference(req: InferenceRequest):
                 model.set_adapter(lora_name)
             except Exception:
                 pass
-        inputs = tokenizer(prompt, return_tensors="pt")
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
-        )
-        result = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        if torch is None:
+            raise RuntimeError('PyTorch not available for inference')
+        device = _infer_generation_device(model)
+        # Prefer chat template if messages provided and tokenizer supports it
+        inputs = None
+        if req.messages and hasattr(tokenizer, 'apply_chat_template'):
+            try:
+                rendered = tokenizer.apply_chat_template(
+                    req.messages, tokenize=False, add_generation_prompt=True
+                )
+                inputs = tokenizer(rendered, return_tensors="pt")
+            except Exception:
+                inputs = None
+        if inputs is None:
+            # Fallback to plain prompt text
+            inputs = tokenizer(prompt or '', return_tensors="pt")
+        if hasattr(inputs, 'to') and device is not None:
+            inputs = inputs.to(device)
+        temp = float(temperature) if temperature is not None else 0.0
+        do_sample = False if deterministic else temp > 0.0
+        # Prefer model's generation_config EOS/PAD when available
+        eos_cfg = None
+        pad_cfg = None
+        try:
+            eos_cfg = getattr(getattr(model, 'generation_config', None), 'eos_token_id', None)
+            pad_cfg = getattr(getattr(model, 'generation_config', None), 'pad_token_id', None)
+        except Exception:
+            eos_cfg = None
+            pad_cfg = None
+
+        generate_kwargs: Dict[str, object] = {
+            'max_new_tokens': int(max_new_tokens or 128),
+            'do_sample': do_sample,
+            'use_cache': True,
+            'eos_token_id': eos_cfg if eos_cfg is not None else getattr(tokenizer, 'eos_token_id', None),
+            'pad_token_id': pad_cfg if pad_cfg is not None else getattr(tokenizer, 'pad_token_id', None),
+        }
+        if do_sample:
+            generate_kwargs['temperature'] = max(temp, 1e-5)
+            if top_p is not None:
+                generate_kwargs['top_p'] = max(1e-6, min(1.0, float(top_p)))
+            if top_k is not None and int(top_k) > 0:
+                generate_kwargs['top_k'] = int(top_k)
+        if repetition_penalty is not None and float(repetition_penalty) != 1.0:
+            generate_kwargs['repetition_penalty'] = float(repetition_penalty)
+        with torch.no_grad():
+            outputs = model.generate(
+                **inputs,
+                **generate_kwargs,
+            )
+        output_ids = outputs[0].to('cpu')
+        input_length = inputs['input_ids'].shape[-1]
+        generated_ids = output_ids[input_length:]
+        if generated_ids.numel() > 0:
+            result = tokenizer.decode(generated_ids, skip_special_tokens=True)
+        else:
+            result = tokenizer.decode(output_ids, skip_special_tokens=True)
+        result = result.strip()
+        # Optional defensive trim: cut off legacy role markers if they appear in generation
+        if _truthy(os.getenv('LORA_TRIM_ROLE_MARKERS')):
+            for marker in ('\n### User', '\n### Assistant'):
+                idx = result.find(marker)
+                if idx > 0:
+                    result = result[:idx].rstrip()
+                    break
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Inference failed: {e}")
 

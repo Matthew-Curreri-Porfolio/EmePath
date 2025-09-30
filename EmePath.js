@@ -451,6 +451,91 @@ async function startServer(brain, { projectId, userId, argv }) {
     };
   } catch {}
 
+  const pinId = () => `pin_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  function parsePinsContent(content) {
+    if (!content) return [];
+    const pins = [];
+    const lines = String(content)
+      .split(/\r?\n/)
+      .filter((ln) => ln && ln.trim().length);
+    lines.forEach((raw, idx) => {
+      let obj = null;
+      try {
+        obj = JSON.parse(raw);
+      } catch {}
+      if (obj && typeof obj === 'object') {
+        const text = toStr(obj.text ?? obj.content ?? '');
+        if (!text) return;
+        pins.push({
+          id: toStr(obj.id || pinId()),
+          text,
+          kind: obj.kind || null,
+          ts: obj.ts || obj.timestamp || null,
+          agentId: obj.agentId || null,
+        });
+      } else {
+        pins.push({ id: `legacy_${idx}`, text: raw, kind: null, ts: null, agentId: null });
+      }
+    });
+    return pins;
+  }
+
+  function getPinsForProject(pid) {
+    try {
+      const row = db.getMemory(userId, pid, 'short', 'pins');
+      return parsePinsContent(row?.content || '');
+    } catch {
+      return [];
+    }
+  }
+
+  function savePinsForProject(pid, pins) {
+    const safePins = Array.isArray(pins) ? pins : [];
+    if (!safePins.length) {
+      try { db.deleteMemory(userId, pid, 'short', 'pins'); } catch {}
+      return [];
+    }
+    const now = new Date().toISOString();
+    const payload = safePins
+      .map((p) =>
+        JSON.stringify({
+          id: toStr(p.id || pinId()),
+          text: toStr(p.text || ''),
+          kind: p.kind || null,
+          ts: p.ts || now,
+          agentId: p.agentId || null,
+        })
+      )
+      .join('\n');
+    db.upsertMemory(userId, pid, 'short', 'pins', payload, 'set');
+    return getPinsForProject(pid);
+  }
+
+  function pruneProjectPinsForAgent(pid, agentId) {
+    const cleanAgentId = toStr(agentId || '');
+    if (!cleanAgentId) return 0;
+    const pins = getPinsForProject(pid);
+    if (!pins.length) return 0;
+    const next = pins.filter((p) => toStr(p.agentId || '') !== cleanAgentId);
+    if (next.length === pins.length) return 0;
+    savePinsForProject(pid, next);
+    return pins.length - next.length;
+  }
+
+  function removeAgentById(agentId, { prunePins = true } = {}) {
+    const cleanAgentId = toStr(agentId || '');
+    if (!cleanAgentId) return null;
+    const brain = LAST_BRAIN;
+    if (!brain || !brain.agents) return null;
+    const agent = brain.agents.get(cleanAgentId);
+    if (!agent) return null;
+    brain.agents.delete(cleanAgentId);
+    try { db.deleteAgentState(cleanAgentId); } catch {}
+    persistAgentsState(userId, agent.projectId, brain);
+    const removedPins = prunePins ? pruneProjectPinsForAgent(agent.projectId, cleanAgentId) : 0;
+    return { agent, removedPins };
+  }
+
   app.get('/health', (_req, res) => {
     res.json({ ok: true, service: 'emepath', projectId, userId });
   });
@@ -471,6 +556,29 @@ async function startServer(brain, { projectId, userId, argv }) {
       res.type('text/plain').send(tail(ttxt));
     } catch (e) {
       res.status(500).type('text/plain').send(String(e?.message || e));
+    }
+  });
+  app.post('/term/clear', (req, res) => {
+    try {
+      const dir = path.resolve(process.cwd(), 'logs');
+      const tlog = path.join(dir, 'terminal.log');
+      fs.writeFileSync(tlog, '');
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
+    }
+  });
+  app.post('/logs/clear', (req, res) => {
+    try {
+      const pid = toStr(req.query?.project || projectId);
+      const dir = path.resolve(process.cwd(), 'logs');
+      const alog = path.join(dir, `agent.${pid.replace(/[^a-zA-Z0-9_.-]+/g, '_')}.log`);
+      const clog = path.join(dir, `chat.${pid.replace(/[^a-zA-Z0-9_.-]+/g, '_')}.jsonl`);
+      if (fs.existsSync(alog)) fs.writeFileSync(alog, '');
+      if (fs.existsSync(clog)) fs.writeFileSync(clog, '');
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
     }
   });
 
@@ -830,15 +938,68 @@ async function startServer(brain, { projectId, userId, argv }) {
       const kind = toStr(req.body?.kind || '');
       const spawn = !!req.body?.spawn || !!kind;
       if (!text) return res.status(400).json({ ok: false, error: 'missing_text' });
-      // Append to pins memory
-      db.upsertMemory(userId, pid, 'short', 'pins', text, 'append');
+      const pin = {
+        id: pinId(),
+        text,
+        kind: spawn ? kind || 'custom' : null,
+        ts: new Date().toISOString(),
+        agentId: null,
+      };
       let agent = null;
       if (spawn) {
         agent = LAST_BRAIN._spawnAgent({ projectId: pid, goal: `Pinned: ${text.slice(0, 60)}`, input: text, expected: 'Follow-up action' });
         if (kind) agent.kind = kind;
+        pin.agentId = agent.id;
         persistAgentsState(userId, pid, LAST_BRAIN);
       }
-      res.json({ ok: true, pinned: true, agent });
+      const pins = getPinsForProject(pid);
+      pins.push(pin);
+      savePinsForProject(pid, pins);
+      res.json({ ok: true, pinned: true, pin, agent });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
+    }
+  });
+
+  app.get('/pins', (req, res) => {
+    try {
+      const pid = toStr(req.query?.project || projectId);
+      const pins = getPinsForProject(pid);
+      res.json({ ok: true, pins });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
+    }
+  });
+
+  app.delete('/pins/:pinId', (req, res) => {
+    try {
+      const pid = toStr(req.query?.project || projectId);
+      const pinIdParam = toStr(req.params?.pinId || '');
+      if (!pinIdParam) return res.status(400).json({ ok: false, error: 'missing_pin_id' });
+      const pins = getPinsForProject(pid);
+      const target = pins.find((p) => toStr(p.id) === pinIdParam);
+      if (!target) return res.status(404).json({ ok: false, error: 'pin_not_found' });
+      const next = pins.filter((p) => toStr(p.id) !== pinIdParam);
+      savePinsForProject(pid, next);
+      if (target.agentId) removeAgentById(target.agentId, { prunePins: false });
+      res.json({ ok: true, removed: pinIdParam, removedAgentId: target.agentId || null });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
+    }
+  });
+  app.delete('/pins', (req, res) => {
+    try {
+      const pid = toStr(req.query?.project || projectId);
+      const pins = getPinsForProject(pid);
+      savePinsForProject(pid, []);
+      const removedAgents = [];
+      for (const pin of pins) {
+        if (pin?.agentId) {
+          const removed = removeAgentById(pin.agentId, { prunePins: false });
+          if (removed?.agent) removedAgents.push(toStr(pin.agentId));
+        }
+      }
+      res.json({ ok: true, removed: 'all', removedAgents });
     } catch (e) {
       res.status(500).json({ ok: false, error: toStr(e?.message || e) });
     }
@@ -1025,6 +1186,18 @@ async function startServer(brain, { projectId, userId, argv }) {
       const pid = agent.projectId;
       const job = enqueueKindAware(LAST_BRAIN, { projectId: pid, agents: [{ ...agent, kind }], checklist: [], baseUrl: '' });
       res.json({ ok: true, job: { id: job.id, status: job.status } });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
+    }
+  });
+  app.delete('/agent/:id', (req, res) => {
+    try {
+      const id = toStr(req.params?.id || '');
+      if (!id) return res.status(400).json({ ok: false, error: 'missing_agent_id' });
+      const result = removeAgentById(id, { prunePins: true });
+      if (!result) return res.status(404).json({ ok: false, error: 'agent_not_found' });
+      const { agent, removedPins } = result;
+      res.json({ ok: true, removed: id, projectId: agent.projectId, removedPins });
     } catch (e) {
       res.status(500).json({ ok: false, error: toStr(e?.message || e) });
     }
@@ -2193,7 +2366,50 @@ function startWatcher({ portStart, portEnd, currentPort, argv }) {
   let lastSig = 0;
   let busy = false;
 
-  const shouldIgnore = (p) => /(^|\/)node_modules\//.test(p) || /(^|\/)\.git\//.test(p) || /(^|\/)logs\//.test(p) || /(^|\/)data\//.test(p) || /(^|\/)runs\//.test(p);
+  // Load simple .gitignore rules (basic support for directory entries and *.ext patterns)
+  const gitignorePatterns = (() => {
+    try {
+      const txt = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
+      return txt
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter((s) => s && !s.startsWith('#'));
+    } catch {
+      return [];
+    }
+  })();
+
+  function matchGitignore(p) {
+    const u = p.replace(/\\/g, '/');
+    for (const pat of gitignorePatterns) {
+      if (!pat) continue;
+      if (pat.endsWith('/')) {
+        // directory ignore: match if path contains that segment
+        const seg = pat.replace(/\/$/, '');
+        if (u.includes(`/${seg}/`)) return true;
+      } else if (pat.startsWith('*.')) {
+        const ext = pat.slice(1); // like '.log'
+        if (u.endsWith(ext)) return true;
+      } else {
+        // simple contains or exact path
+        if (u.endsWith(pat) || u.includes(`/${pat}/`)) return true;
+      }
+    }
+    return false;
+  }
+
+  const shouldIgnore = (p) =>
+    /(^|\/)node_modules\//.test(p) ||
+    /(^|\/)\.git\//.test(p) ||
+    /(^|\/)logs\//.test(p) ||
+    /(^|\/)data\//.test(p) ||
+    /(^|\/)runs\//.test(p) ||
+    /(^|\/)gateway\/db\//.test(p) ||
+    /(^|\/)gateway\/logs\//.test(p) ||
+    /(^|\/)\.stack\.pids\.json$/.test(p) ||
+    /(^|\/)stack\.log$/.test(p) ||
+    /\.(log|out|db|sqlite3?)$/i.test(p) ||
+    matchGitignore(p);
 
   async function scanDir(dir) {
     let max = 0;

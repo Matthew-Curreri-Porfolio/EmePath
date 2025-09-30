@@ -20,10 +20,11 @@
     "test:watch": "vitest",
     "start": "npm run -s start:both",
     "start:emepath": "node EmePath.js --server",
-    "start:both": "sh -c 'node scripts/start-stack.js --start & node EmePath.js --server'",
+    "start:both": "sh -c 'node scripts/start-stack.js --start & node EmePath.js --server &'",
     "stack:start": "node scripts/start-stack.js --start",
     "stack:stop": "node scripts/start-stack.js --stop",
     "stack:shutdown": "node scripts/start-stack.js --stop",
+    "stack:force-stop": "node scripts/start-stack.js --stop --force",
     "stop": "npm run -s stack:stop",
     "restart": "npm run -s stop && npm run -s start",
     "stack:searx": "node scripts/start-stack.js --searxng-only",
@@ -42,8 +43,12 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
+    "@eslint/eslintrc": "^3.3.1",
+    "@eslint/js": "^9.36.0",
     "better-sqlite3": "^12.2.0",
+    "eslint-plugin-import": "^2.32.0",
     "express": "^5.1.0",
+    "globals": "^16.4.0",
     "supertest": "^7.1.4"
   }
 }

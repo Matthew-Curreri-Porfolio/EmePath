@@ -7,6 +7,9 @@ import { getConfig } from './gateway/config/index.js';
 import db from './gateway/db/db.js';
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
 
 let CFG;
 try { CFG = getConfig(); } catch { CFG = { ports: { gateway: 3123 } }; }
@@ -33,26 +36,24 @@ export class Brain {
   }
 
   _defaultModelConfig() {
-    // Prefer project.config.js if available
+    const envName = process.env.LORA_MODEL_NAME;
     try {
-      const mod = require ? null : null;
-    } catch {}
-    try {
-      // dynamic import to avoid ESM static timing issues
-      const url = new URL('./project.config.js', import.meta.url);
-      // If project.config.js is at repo root, resolve from cwd
-      // fallback: attempt cwd path
+      const projectCfg = require('./project.config.js');
+      const gatewayCfg = projectCfg?.default?.gateway || {};
+      const cfgPath = gatewayCfg.modelPath;
+      const cfgName = gatewayCfg.modelName || envName;
+      if (cfgPath && cfgPath.trim()) {
+        return { name: cfgName || 'default', model_path: cfgPath };
+      }
     } catch {}
     const envPath = process.env.LORA_MODEL_PATH;
-    const envName = process.env.LORA_MODEL_NAME;
     if (envPath && envPath.trim()) {
       return { name: envName || 'default', model_path: envPath };
     }
-    // Prefer local GGUF model (e.g., unlocked/uncensored) under gateway/models if present
+    const root = path.resolve(process.cwd(), 'gateway', 'models');
+    const maxDepth = 4;
     try {
-      const root = path.resolve(process.cwd(), 'gateway', 'models');
-      const ggufs = [];
-      const maxDepth = 4;
+      const hfHits = [];
       const stack = [{ d: root, k: 0 }];
       while (stack.length) {
         const { d, k } = stack.pop();
@@ -60,8 +61,42 @@ export class Brain {
         try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { continue; }
         for (const e of ents) {
           const p = path.join(d, e.name);
-          if (e.isDirectory()) { if (k < maxDepth) stack.push({ d: p, k: k + 1 }); }
-          else if (e.isFile() && p.toLowerCase().endsWith('.gguf')) ggufs.push(p);
+          if (e.isDirectory()) {
+            if (k < maxDepth) stack.push({ d: p, k: k + 1 });
+          } else if (e.isFile() && e.name === 'config.json') {
+            const dir = path.dirname(p);
+            if (/(^|\/)loras(\/|$)/.test(dir)) continue;
+            const name = path.basename(dir);
+            hfHits.push({ name, path: dir });
+          }
+        }
+      }
+      if (hfHits.length) {
+        const score = (n) => {
+          const s = n.toLowerCase();
+          if (/gpt-oss|qwen/.test(s)) return 120;
+          if (/mistral|gemma|phi/.test(s)) return 80;
+          return 10;
+        };
+        hfHits.sort((a, b) => score(b.name) - score(a.name) || a.name.localeCompare(b.name));
+        const best = hfHits[0];
+        return { name: best.name, model_path: best.path };
+      }
+    } catch {}
+    try {
+      const ggufs = [];
+      const stack = [{ d: root, k: 0 }];
+      while (stack.length) {
+        const { d, k } = stack.pop();
+        let ents = [];
+        try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { continue; }
+        for (const e of ents) {
+          const p = path.join(d, e.name);
+          if (e.isDirectory()) {
+            if (k < maxDepth) stack.push({ d: p, k: k + 1 });
+          } else if (e.isFile() && p.toLowerCase().endsWith('.gguf')) {
+            ggufs.push(p);
+          }
         }
       }
       if (ggufs.length) {
@@ -77,44 +112,6 @@ export class Brain {
         return { name: path.basename(p).replace(/\.gguf$/i, '') || (envName || 'default'), model_path: p };
       }
     } catch {}
-    // Fallback: search recursively under gateway/models for a HuggingFace layout (config.json present)
-    try {
-      const root = path.resolve(process.cwd(), 'gateway', 'models');
-      /** @type {{name:string, path:string}[]} */
-      const hits = [];
-      const maxDepth = 4;
-      const stack = [{ d: root, k: 0 }];
-      while (stack.length) {
-        const { d, k } = stack.pop();
-        let ents = [];
-        try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { continue; }
-        for (const e of ents) {
-          const p = path.join(d, e.name);
-          if (e.isDirectory()) {
-            if (k < maxDepth) stack.push({ d: p, k: k + 1 });
-          } else if (e.isFile() && e.name === 'config.json') {
-            // Prefer HF-style directories under base/, skip loras/
-            const dir = path.dirname(p);
-            if (/(^|\/)loras(\/|$)/.test(dir)) continue;
-            const name = path.basename(dir);
-            hits.push({ name, path: dir });
-          }
-        }
-      }
-      if (hits.length) {
-        // Prefer small chat-capable bases: qwen*, mistral*, gemma*, phi*
-        const score = (n) => {
-          const s = n.toLowerCase();
-          if (/qwen/.test(s)) return 100;
-          if (/mistral|gemma|phi/.test(s)) return 80;
-          return 10;
-        };
-        hits.sort((a, b) => score(b.name) - score(a.name) || a.name.localeCompare(b.name));
-        const best = hits[0];
-        return { name: best.name, model_path: best.path };
-      }
-    } catch {}
-    // No fallback — return empty to trigger bootstrap guidance
     return { name: envName || 'default', model_path: '' };
   }
 

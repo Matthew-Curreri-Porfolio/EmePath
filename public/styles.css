@@ -7,6 +7,10 @@ body{margin:0;background:linear-gradient(120deg,var(--bg) 0%,#101425 50%,var(--b
 .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.4px}
 .badge{padding:2px 8px;border-radius:999px;background:linear-gradient(90deg,var(--brand),var(--accent));color:#0b0e1a;font-weight:700;font-size:11px}
 .projects{display:grid;gap:8px}
+.section{display:flex;flex-direction:column;gap:6px}
+.section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:8px}
+.controls.mini{gap:6px}
+.controls.mini .btn{padding:4px 8px;font-size:12px}
 .pCard{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:10px 12px;box-shadow:var(--shadow);cursor:pointer;transition:transform .12s ease}
 .pCard:hover{transform:translateY(-2px)}
 .stat{font-size:11px;color:var(--muted);padding:2px 6px;border:1px solid var(--border);border-radius:8px;margin-right:6px}
@@ -19,18 +23,29 @@ body{margin:0;background:linear-gradient(120deg,var(--bg) 0%,#101425 50%,var(--b
 .topTitle{font-weight:700}
 #graph{flex:1;background:radial-gradient(600px 300px at 40% 40%, rgba(106,212,255,.08), transparent), radial-gradient(600px 300px at 80% 70%, rgba(167,139,250,.08), transparent)}
 .dock{border-left:1px solid var(--border);display:flex;flex-direction:column}
+.pins{display:none;padding:10px 16px 4px;overflow:auto;max-height:160px;border-bottom:1px solid var(--border)}
+.pins.show{display:block}
+.pins .empty{font-size:12px;color:var(--muted);padding:4px 0}
+.pinCard{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:8px;box-shadow:var(--shadow)}
+.pinCard:last-child{margin-bottom:0}
+.pinCard .pin-meta{display:flex;justify-content:space-between;gap:10px;font-size:11px;color:var(--muted);margin-bottom:6px}
+.pinCard .pin-text{white-space:pre-wrap;font-size:13px}
+.pinCard .pin-actions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
 .chat{flex:1;overflow:auto;padding:16px}
 .bubble{max-width:80ch;padding:10px 14px;border-radius:14px;margin:8px 0;box-shadow:var(--shadow);border:1px solid var(--border)}
 .user{background:linear-gradient(180deg,#0f2344,#0b1a30)}
 .asst{background:linear-gradient(180deg,#142523,#0e1b1a)}
-.input{display:flex;gap:10px;padding:12px;border-top:1px solid var(--border)}
-textarea{flex:1;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;color:var(--text)}
+.input{display:flex;gap:10px;padding:12px;border-top:1px solid var(--border);align-items:flex-start}
+textarea{flex:1;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;color:var(--text);resize:vertical}
+.dock .input textarea{height:72px;min-height:72px;max-height:180px;overflow-y:auto;resize:none}
 .send{min-width:120px}
 .agents{display:flex;flex-direction:column;gap:8px;overflow:auto;max-height:40vh}
 .aRow{display:flex;align-items:flex-start;gap:10px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:10px}
+.aRow .agent-actions{display:flex;flex-direction:column;gap:6px}
+.aRow .agent-actions .btn{min-width:84px}
 .pill{padding:2px 8px;border-radius:999px;font-size:11px;border:1px solid var(--border)}
 .pill.pending{background:#111827;color:var(--pending)}.pill.running{background:#0b1222;color:var(--run)}.pill.done{background:#0f1e18;color:var(--ok)}.pill.error{background:#1e0f10;color:var(--err)}.pill.paused{background:#1a1424;color:var(--accent)}
-.logs{white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:10px;height:28vh;overflow:auto}
+.logs{white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:10px;height:28vh;overflow:auto;scroll-behavior:smooth}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:flex-start;justify-content:center;padding-top:10vh}
 .palBox{width:700px;background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow)}
 .palBox input{width:100%;padding:12px;background:transparent;color:var(--text);border:0;border-bottom:1px solid var(--border);outline:none}
@@ -52,4 +67,3 @@ textarea{flex:1;background:var(--card);border:1px solid var(--border);border-rad
 *::-webkit-scrollbar-track{background:transparent}
 *::-webkit-scrollbar-thumb{background:linear-gradient(180deg,var(--brand),var(--accent));border-radius:10px;border:2px solid rgba(0,0,0,0)}
 *{scrollbar-color: var(--accent) transparent; scrollbar-width: thin}
-

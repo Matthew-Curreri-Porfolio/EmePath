@@ -126,6 +126,8 @@ export async function chat({ messages, temperature = 0.2, maxTokens = 1024, time
       model_name: name,
       lora_name: lora,
       prompt,
+      // Send structured messages so HF backends can apply chat templates
+      messages: (messages || []).map(m => ({ role: m.role || 'user', content: toStr(m.content || '') })),
       max_new_tokens: maxTokens,
       temperature,
     },

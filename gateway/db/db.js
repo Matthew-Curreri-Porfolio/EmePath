@@ -714,12 +714,17 @@ export default {
   listProjects,
   setProjectActive,
   upsertAgentState,
+  deleteAgentState,
   listAgentStates,
   insertJob,
   updateJob,
   insertChatMessage,
   listChatMessages,
   clearChatMessages,
+  setStackPid,
+  getStackPid,
+  getAllStackPids,
+  clearStackPids,
   run,
   get,
   all,
@@ -760,6 +765,12 @@ export function upsertAgentState(userId, workspaceId, agent) {
       now,
     ]
   );
+}
+
+export function deleteAgentState(agentId) {
+  try {
+    run(`DELETE FROM agents_state WHERE id = ?`, [String(agentId)]);
+  } catch {}
 }
 
 export function listAgentStates(userId, workspaceId) {
@@ -809,4 +820,47 @@ export function listChatMessages(userId, workspaceId, { limit = 50, offset = 0, 
 
 export function clearChatMessages(userId, workspaceId) {
   run(`DELETE FROM chat_messages WHERE user_id = ? AND workspace_id = ?`, [userId, String(workspaceId || 'default')]);
+}
+
+// ---------- Stack PIDs ----------
+
+export function setStackPid(name, pid) {
+  if (!name || !pid || !Number.isFinite(pid)) return false;
+  try {
+    run(`INSERT OR REPLACE INTO stack_pids (name, pid, created_at) VALUES (?, ?, COALESCE((SELECT created_at FROM stack_pids WHERE name = ?), CURRENT_TIMESTAMP))`, [String(name), pid, String(name)]);
+    return true;
+  } catch (e) {
+    console.error('[db] setStackPid failed:', String(e?.message || e));
+    return false;
+  }
+}
+
+export function getStackPid(name) {
+  try {
+    const row = get(`SELECT pid FROM stack_pids WHERE name = ? LIMIT 1`, [String(name || '')]);
+    return row?.pid || null;
+  } catch {
+    return null;
+  }
+}
+
+export function getAllStackPids() {
+  try {
+    const rows = all(`SELECT name, pid FROM stack_pids ORDER BY name`, []);
+    return rows.reduce((acc, row) => {
+      acc[row.name] = row.pid;
+      return acc;
+    }, {});
+  } catch {
+    return {};
+  }
+}
+
+export function clearStackPids() {
+  try {
+    run(`DELETE FROM stack_pids`, []);
+    return true;
+  } catch {
+    return false;
+  }
 }

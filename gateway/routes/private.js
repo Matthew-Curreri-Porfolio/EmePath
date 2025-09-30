@@ -217,6 +217,25 @@ export function registerPrivate(app, deps, { memoryLimiter } = {}) {
     }
   });
 
+  // Admin: filesystem crawl (index + optional summaries)
+  app.post('/admin/crawl', requireAuth, async (req, res) => {
+    try {
+      const { crawl } = await import('../tools/crawl.js');
+      const body = req.body || {};
+      const out = await crawl({
+        root: String(body.root || '.'),
+        maxDepth: body.maxDepth != null ? Number(body.maxDepth) : 6,
+        maxFiles: body.maxFiles != null ? Number(body.maxFiles) : 20000,
+        summarize: Boolean(body.summarize),
+        excludes: Array.isArray(body.excludes) ? body.excludes : [],
+        system: String(body.system || '').toLowerCase() === 'true' || body.system === true,
+      });
+      res.json(out);
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String((e && e.message) || e) });
+    }
+  });
+
   // Summary endpoint (define before :id route to avoid capture)
   app.get('/admin/logs/summary', requireAuth, async (req, res) => {
     try {

@@ -16,8 +16,27 @@
         </div>
         <div id="projects" class="projects"></div>
         <div class="section"><div class="topTitle">Agents</div><div id="agents" class="agents"></div></div>
-        <div class="section"><div class="topTitle">Terminal <button class="btn sm" id="toggleTerm">Show</button></div><div id="termWrap" class="coll"><div id="term" class="logs"></div></div></div>
-        <div class="section"><div class="topTitle">Agent/Chat Logs <button class="btn sm" id="toggleLogs">Show</button></div><div id="logsWrap" class="coll"><div id="logs" class="logs"></div></div></div>
+        <div class="section">
+          <div class="section-head">
+            <div class="topTitle">Terminal</div>
+            <div class="controls mini">
+              <button class="btn sm" id="toggleTerm">Hide</button>
+              <button class="btn sm" id="clearTerm">Clear</button>
+              <button class="btn sm" id="termScrollBottom" style="display:none">Bottom</button>
+            </div>
+          </div>
+          <div id="termWrap" class="coll"><div id="term" class="logs"></div></div>
+        </div>
+        <div class="section">
+          <div class="section-head">
+            <div class="topTitle">Agent/Chat Logs</div>
+            <div class="controls mini">
+              <button class="btn sm" id="toggleLogs">Hide</button>
+              <button class="btn sm" id="clearLogs">Clear</button>
+            </div>
+          </div>
+          <div id="logsWrap" class="coll"><div id="logs" class="logs"></div></div>
+        </div>
       </aside>
 
       <section class="canvas">
@@ -31,8 +50,9 @@
       <aside class="dock">
         <div class="topbar">
           <div class="topTitle">Conversation</div>
-          <div class="controls"><a class="btn" href="#" id="exportChat">Export</a><button class="btn" id="clearChat">Clear</button></div>
+          <div class="controls"><a class="btn" href="#" id="exportChat">Export</a><button class="btn" id="clearPins">Clear Pins</button><button class="btn" id="clearChat">Clear Chat</button></div>
         </div>
+        <div class="pins" id="pins"></div>
         <div class="chat" id="chat"></div>
         <div class="input"><textarea id="ta" placeholder="Type a message…"></textarea><button class="btn send" id="send">Send</button></div>
       </aside>
@@ -66,4 +86,3 @@
     <script src="/app.js"></script>
   </body>
   </html>
-

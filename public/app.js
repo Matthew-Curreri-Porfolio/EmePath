@@ -1,24 +1,249 @@
 let currentProject = new URLSearchParams(location.search).get('project') || 'emepath';
 let currentPlan = null;
 let lastAgents = null;
+let termSource = null;
+let termAutoScroll = true;
 
 // Utilities
 function statusPill(s){ s=(s||'').toLowerCase(); return '<span class="pill '+s+'">'+s+'</span>'; }
 function trim(s,n){ s=String(s||''); return s.length>n? s.slice(0,n-1)+'…': s; }
+function isNearBottom(el, threshold = 40){
+  return el ? el.scrollHeight - el.scrollTop - el.clientHeight < threshold : true;
+}
 
 // Projects
 async function loadProjects(){ const r=await fetch('/projects'); const j=await r.json(); const el=document.getElementById('projects'); el.innerHTML=''; (j.projects||[]).forEach(p=>{ const d=document.createElement('div'); d.className='pCard'; d.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between"><div><div style="font-weight:700">'+p.projectId+'</div><div style="margin-top:4px"><span class="stat">pending '+(p.status.counts.pending||0)+'</span><span class="stat">running '+(p.status.counts.running||0)+'</span><span class="stat">done '+(p.status.counts.done||0)+'</span></div></div><div>'+statusPill(p.status.queue.paused?'paused':'active')+'</div></div>'; d.onclick=()=>{currentProject=p.projectId; loadAll();}; el.appendChild(d); }); document.getElementById('projTitle').textContent='Flow — '+currentProject; }
 
 // Chat
-async function loadChat(){ const r=await fetch('/chat?project='+encodeURIComponent(currentProject)); const j=await r.json(); const c=document.getElementById('chat'); c.innerHTML=''; const msgs=(j.messages||[]); msgs.forEach((m)=>{ const d=document.createElement('div'); d.className='bubble '+(m.role==='user'?'user':'asst'); const role=document.createElement('div'); role.style.opacity='.7'; role.style.fontSize='12px'; role.style.marginBottom='4px'; role.textContent=m.role; const body=document.createElement('div'); body.textContent=m.content; const foot=document.createElement('div'); foot.style.marginTop='6px'; foot.style.opacity='.8'; const pin=document.createElement('button'); pin.className='btn sm'; pin.textContent='📌 Pin'; pin.onclick=async ()=>{ const kind=prompt('Kind (custom/distill/scan/query)?','custom')||'custom'; await fetch('/pin?project='+encodeURIComponent(currentProject),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:m.content,kind,spawn:true})}); await loadPlan(); await loadAgents(); }; foot.appendChild(pin); d.appendChild(role); d.appendChild(body); d.appendChild(foot); c.appendChild(d); }); c.scrollTop=c.scrollHeight; }
+async function loadChat(){
+  try {
+    const r=await fetch('/chat?project='+encodeURIComponent(currentProject));
+    const j=await r.json();
+    const c=document.getElementById('chat');
+    if(!c) return;
+    c.innerHTML='';
+    const msgs=(j.messages||[]);
+    msgs.forEach((m)=>{
+      const d=document.createElement('div');
+      d.className='bubble '+(m.role==='user'?'user':'asst');
+      const role=document.createElement('div');
+      role.style.opacity='.7';
+      role.style.fontSize='12px';
+      role.style.marginBottom='4px';
+      role.textContent=m.role;
+      const body=document.createElement('div');
+      body.textContent=m.content;
+      const foot=document.createElement('div');
+      foot.style.marginTop='6px';
+      foot.style.opacity='.8';
+      const pin=document.createElement('button');
+      pin.className='btn sm';
+      pin.textContent='📌 Pin';
+      pin.onclick=async ()=>{
+        const kind=prompt('Kind (custom/distill/scan/query)?','custom')||'custom';
+        try{
+          await fetch('/pin?project='+encodeURIComponent(currentProject),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:m.content,kind,spawn:true})});
+          await loadPlan();
+          await loadAgents();
+          await loadPins();
+        }catch(err){ console.error(err); }
+      };
+      foot.appendChild(pin);
+      d.appendChild(role);
+      d.appendChild(body);
+      d.appendChild(foot);
+      c.appendChild(d);
+    });
+    c.scrollTop=c.scrollHeight;
+  } catch(e){ console.error(e); }
+}
+
+async function loadPins(){
+  const el=document.getElementById('pins');
+  const clearBtn=document.getElementById('clearPins');
+  if(!el) return;
+  try {
+    const r=await fetch('/pins?project='+encodeURIComponent(currentProject));
+    const j=await r.json();
+    const pins=Array.isArray(j.pins)?j.pins:[];
+    el.innerHTML='';
+    if(!pins.length){
+      el.classList.remove('show');
+      if(clearBtn) clearBtn.disabled=true;
+      return;
+    }
+    el.classList.add('show');
+    if(clearBtn) clearBtn.disabled=false;
+    pins.forEach((pin)=>{
+      const card=document.createElement('div');
+      card.className='pinCard';
+      const meta=document.createElement('div');
+      meta.className='pin-meta';
+      const label=pin.kind?pin.kind.toUpperCase():'PIN';
+      const time=pin.ts?new Date(pin.ts).toLocaleString():'';
+      meta.innerHTML=`<span>${label}</span><span>${time}</span>`;
+      const text=document.createElement('div');
+      text.className='pin-text';
+      text.textContent=pin.text;
+      const actions=document.createElement('div');
+      actions.className='pin-actions';
+      const useBtn=document.createElement('button');
+      useBtn.className='btn sm';
+      useBtn.textContent='Use';
+      useBtn.onclick=()=>{
+        const ta=document.getElementById('ta');
+        if(ta){ ta.value=pin.text; ta.focus(); }
+      };
+      const removeBtn=document.createElement('button');
+      removeBtn.className='btn sm';
+      removeBtn.textContent='Remove';
+      removeBtn.onclick=async ()=>{
+        if(!confirm('Remove this pin?')) return;
+        await fetch('/pins/'+encodeURIComponent(pin.id)+'?project='+encodeURIComponent(currentProject),{method:'DELETE'});
+        await loadPins();
+        await loadAgents();
+        await loadPlan();
+      };
+      actions.appendChild(useBtn);
+      actions.appendChild(removeBtn);
+      if(pin.agentId){
+        const removeAgentBtn=document.createElement('button');
+        removeAgentBtn.className='btn sm';
+        removeAgentBtn.textContent='Remove Agent';
+        removeAgentBtn.onclick=async ()=>{
+          if(!confirm('Remove the agent spawned from this pin?')) return;
+          await fetch('/agent/'+encodeURIComponent(pin.agentId),{method:'DELETE'});
+          await loadAgents();
+          await loadPins();
+          await loadPlan();
+        };
+        actions.appendChild(removeAgentBtn);
+      }
+      card.appendChild(meta);
+      card.appendChild(text);
+      card.appendChild(actions);
+      el.appendChild(card);
+    });
+  } catch(e){
+    if(clearBtn) clearBtn.disabled=true;
+    el.classList.remove('show');
+    console.error(e);
+  }
+}
+
+async function sendMessage(){
+  const ta=document.getElementById('ta');
+  if(!ta) return;
+  const text=ta.value.trim();
+  if(!text) return;
+  ta.value='';
+  try {
+    await fetch('/chat?project='+encodeURIComponent(currentProject),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text})});
+    await loadProjects();
+    await loadChat();
+    await loadPins();
+    await loadPlan();
+  } catch(e){ console.error(e); }
+}
 
 // Agents
-async function loadAgents(){ const r=await fetch('/status?project='+encodeURIComponent(currentProject)); const j=await r.json(); const list=(j.status&&j.status.agents)||[]; lastAgents=list; const el=document.getElementById('agents'); el.innerHTML=''; list.forEach(a=>{ const d=document.createElement('div'); d.className='aRow'; d.innerHTML='<div>'+statusPill(a.status)+'</div><div style="flex:1"><div style="font-weight:600">'+a.goal+'</div><div style="color:var(--muted);font-size:12px">'+a.id+' · EOT '+(a.eots||0)+'</div></div><button class="btn runBtn sm" data-id="'+a.id+'">Run</button>'; el.appendChild(d); }); el.querySelectorAll('.runBtn').forEach(btn=>{ btn.onclick=async ()=>{ const id=btn.getAttribute('data-id'); const kind=prompt('Kind to run (distill/scan/query)?','distill')||'custom'; await fetch('/agent/'+encodeURIComponent(id)+'/run',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind})}); loadAgents(); }; }); drawGraph(list); }
+async function loadAgents(){
+  const r=await fetch('/status?project='+encodeURIComponent(currentProject));
+  const j=await r.json();
+  const list=(j.status&&j.status.agents)||[];
+  lastAgents=list;
+  const el=document.getElementById('agents');
+  if(!el) return;
+  el.innerHTML='';
+  list.forEach(a=>{
+    const d=document.createElement('div');
+    d.className='aRow';
+    d.innerHTML='<div>'+statusPill(a.status)+'</div>'+
+      '<div style="flex:1"><div style="font-weight:600">'+trim(a.goal||'',72)+'</div><div style="color:var(--muted);font-size:12px">'+a.id+' · EOT '+(a.eots||0)+'</div></div>'+
+      '<div class="agent-actions"><button class="btn runBtn sm" data-id="'+a.id+'">Run</button><button class="btn removeBtn sm" data-id="'+a.id+'">Remove</button></div>';
+    el.appendChild(d);
+  });
+  el.querySelectorAll('.runBtn').forEach(btn=>{
+    btn.onclick=async ()=>{
+      const id=btn.getAttribute('data-id');
+      const kind=prompt('Kind to run (distill/scan/query)?','distill')||'custom';
+      await fetch('/agent/'+encodeURIComponent(id)+'/run',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind})});
+      loadAgents();
+    };
+  });
+  el.querySelectorAll('.removeBtn').forEach(btn=>{
+    btn.onclick=async ()=>{
+      const id=btn.getAttribute('data-id');
+      if(!confirm('Remove this agent?')) return;
+      await fetch('/agent/'+encodeURIComponent(id),{method:'DELETE'});
+      await loadAgents();
+      await loadPlan();
+    };
+  });
+  drawGraph(list);
+}
 
 // Logs & Terminal
 async function loadLogs(){ const el=document.getElementById('logs'); if(!el) return; try { const es=new EventSource('/logs/sse?project='+encodeURIComponent(currentProject)); es.onmessage=(ev)=>{ try{ const d=JSON.parse(ev.data); el.textContent=d.text||''; }catch{} }; es.onerror=()=>{ es.close(); }; } catch(e) { const r=await fetch('/logs?project='+encodeURIComponent(currentProject)); const t=await r.text(); el.textContent=t; }
 }
-async function loadTerm(){ const el=document.getElementById('term'); if(!el) return; try { const es=new EventSource('/term/sse'); es.onmessage=(ev)=>{ try{ const d=JSON.parse(ev.data); el.textContent=d.text||''; }catch{} }; es.onerror=()=>{ es.close(); }; } catch(e) { try{ const r=await fetch('/term'); const t=await r.text(); el.textContent=t; }catch(_){} }
+async function loadTerm(){
+  const el=document.getElementById('term');
+  if(!el) return;
+  const wrap=document.getElementById('termWrap');
+  const scrollBtn=document.getElementById('termScrollBottom');
+  if(!el.dataset.bound){
+    el.dataset.bound='1';
+    el.addEventListener('scroll',()=>{
+      const near=isNearBottom(el);
+      termAutoScroll=near;
+      if(scrollBtn){
+        const hidden=wrap && wrap.style.display==='none';
+        scrollBtn.style.display = (!near && !hidden) ? 'inline-flex' : 'none';
+      }
+    });
+  }
+  if(scrollBtn && !scrollBtn.dataset.bound){
+    scrollBtn.dataset.bound='1';
+    scrollBtn.addEventListener('click',()=>{
+      termAutoScroll=true;
+      el.scrollTop=el.scrollHeight;
+      scrollBtn.style.display='none';
+    });
+  }
+  termAutoScroll=true;
+  el.scrollTop=el.scrollHeight;
+  if(termSource){
+    termSource.close();
+    termSource=null;
+  }
+  try {
+    termSource=new EventSource('/term/sse');
+    termSource.onmessage=(ev)=>{
+      try{
+        const d=JSON.parse(ev.data);
+        el.textContent=d.text||'';
+      }catch{
+        el.textContent=ev.data||'';
+      }
+      if(termAutoScroll){
+        el.scrollTop=el.scrollHeight;
+        if(scrollBtn) scrollBtn.style.display='none';
+      } else if(scrollBtn && (!wrap || wrap.style.display!=='none')){
+        scrollBtn.style.display='inline-flex';
+      }
+    };
+    termSource.onerror=()=>{
+      termSource.close();
+      termSource=null;
+    };
+  } catch(e) {
+    try{
+      const r=await fetch('/term');
+      const t=await r.text();
+      el.textContent=t;
+      if(termAutoScroll) el.scrollTop=el.scrollHeight;
+    }catch(err){ console.error(err); }
+  }
 }
 
 // Plan & Memory
@@ -66,7 +291,7 @@ document.getElementById('sendInterrupt').addEventListener('click', async ()=>{ c
 
 // Logs collapse + terminal
 document.getElementById('toggleLogs').addEventListener('click',()=>{ const w=document.getElementById('logsWrap'); const b=document.getElementById('toggleLogs'); const vis = w.style.display !== 'none'; w.style.display = vis ? 'none' : 'block'; b.textContent = vis ? 'Show' : 'Hide'; });
-document.getElementById('toggleTerm').addEventListener('click',()=>{ const w=document.getElementById('termWrap'); const b=document.getElementById('toggleTerm'); const vis = w.style.display !== 'none'; w.style.display = vis ? 'none' : 'block'; b.textContent = vis ? 'Show' : 'Hide'; });
+document.getElementById('toggleTerm').addEventListener('click',()=>{ const w=document.getElementById('termWrap'); const b=document.getElementById('toggleTerm'); const vis = w.style.display !== 'none'; w.style.display = vis ? 'none' : 'block'; b.textContent = vis ? 'Show' : 'Hide'; if(!vis){ termAutoScroll=true; requestAnimationFrame(()=>{ const el=document.getElementById('term'); if(el){ el.scrollTop=el.scrollHeight; } }); } });
 
 // Plan drawer
 document.getElementById('openPlan').addEventListener('click',()=>togglePlan(true));
@@ -85,11 +310,44 @@ document.getElementById('closeMemory').addEventListener('click',()=>toggleMemory
 function toggleMemory(on){ const el=document.getElementById('memory'); el.style.display= on?'block':'none'; if(on) loadMemory(); }
 
 // Chat controls
-document.getElementById('send').addEventListener('click', async ()=>{ const t=document.getElementById('ta').value.trim(); if(!t) return; document.getElementById('ta').value=''; await fetch('/chat?project='+encodeURIComponent(currentProject),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:t})}); loadProjects(); loadChat(); loadPlan(); });
+document.getElementById('send').addEventListener('click',()=>{ sendMessage(); });
+const chatInput=document.getElementById('ta');
+if(chatInput){
+  chatInput.addEventListener('keydown',async(e)=>{
+    if(e.key==='Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey){
+      e.preventDefault();
+      await sendMessage();
+    }
+  });
+}
 document.getElementById('pause').addEventListener('click',()=>fetch('/pause',{method:'POST'}).then(loadProjects));
 document.getElementById('resume').addEventListener('click',()=>fetch('/resume',{method:'POST'}).then(loadProjects));
 document.getElementById('exportChat').addEventListener('click',(e)=>{ e.preventDefault(); const url='/chat/export?project='+encodeURIComponent(currentProject); const a=document.createElement('a'); a.href=url; a.download='chat.'+currentProject+'.jsonl'; a.click(); });
 document.getElementById('clearChat').addEventListener('click',async ()=>{ if(!confirm('Clear chat history? A backup will be created.')) return; await fetch('/chat/clear?project='+encodeURIComponent(currentProject),{method:'POST'}); await loadChat(); });
+const clearPinsBtn=document.getElementById('clearPins');
+if(clearPinsBtn){
+  clearPinsBtn.addEventListener('click',async()=>{
+    if(clearPinsBtn.disabled) return;
+    if(!confirm('Remove all pins for this project?')) return;
+    await fetch('/pins?project='+encodeURIComponent(currentProject),{method:'DELETE'});
+    await loadPins();
+    await loadAgents();
+    await loadPlan();
+  });
+}
+document.getElementById('clearTerm').addEventListener('click',async()=>{
+  try{ await fetch('/term/clear',{method:'POST'}); }catch(e){ console.error(e); }
+  const term=document.getElementById('term');
+  if(term){ term.textContent=''; term.scrollTop=0; }
+  termAutoScroll=true;
+  const scrollBtn=document.getElementById('termScrollBottom');
+  if(scrollBtn) scrollBtn.style.display='none';
+});
+document.getElementById('clearLogs').addEventListener('click',async()=>{
+  try{ await fetch('/logs/clear?project='+encodeURIComponent(currentProject),{method:'POST'}); }catch(e){ console.error(e); }
+  const logs=document.getElementById('logs');
+  if(logs){ logs.textContent=''; logs.scrollTop=0; }
+});
 
 // Watchbar
 async function pollWatch(){ try{ const r=await fetch('/watch/state'); const j=await r.json(); const s=j.state||{}; const wb=document.getElementById('watchbar'); if(!wb) return; if(s.active){ wb.style.display='inline-block'; const msg = s.step==='staging' ? `staging :${s.targetPort||''}` : (s.step==='switching' ? 'switching' : `restart in ${s.seconds||0}s`); wb.textContent=msg; } else { wb.style.display='none'; } }catch(e){} }
@@ -98,4 +356,3 @@ function loadAll(){ loadProjects(); loadAgents(); loadLogs(); loadTerm(); loadCh
 
 loadAll();
 setInterval(pollWatch,1000);
-

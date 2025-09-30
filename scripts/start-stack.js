@@ -9,6 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { modelRoots, manifestRoots, blobPathForDigest, resolvePython } from '../gateway/config/paths.js';
 import { getConfig } from '../gateway/config/index.js';
+import { run, get, all, setStackPid, getAllStackPids } from '../gateway/db/db.js';
 
 const ROOT = process.cwd();
 // llama.cpp binaries (temporarily unused; kept for future fallback)
@@ -24,6 +25,19 @@ const GATEWAY_PORT = CFG.ports.gateway;
 const SEARXNG_BASE = CFG.searxng.base;
 const SEARXNG_PORT = Number(process.env.SEARXNG_PORT || 8888);
 const SEARXNG_HOST = process.env.SEARXNG_HOST || '127.0.0.1';
+// Opinionated generation defaults (can be overridden via shell env)
+const GEN_DEFAULTS = {
+  LORA_DETERMINISTIC: process.env.LORA_DETERMINISTIC || '1',
+  LORA_DEFAULT_MAX_NEW_TOKENS: process.env.LORA_DEFAULT_MAX_NEW_TOKENS || '96',
+  LORA_DEFAULT_TEMPERATURE: process.env.LORA_DEFAULT_TEMPERATURE || '0.2',
+  LORA_DEFAULT_TOP_P: process.env.LORA_DEFAULT_TOP_P || '0.85',
+  LORA_DEFAULT_TOP_K: process.env.LORA_DEFAULT_TOP_K || '',
+  LORA_DEFAULT_REPETITION_PENALTY:
+    process.env.LORA_DEFAULT_REPETITION_PENALTY || '1.15',
+  LORA_TRIM_ROLE_MARKERS: process.env.LORA_TRIM_ROLE_MARKERS || '1',
+  LORA_DEVICE_MAP: process.env.LORA_DEVICE_MAP || 'auto',
+  LORA_TORCH_DTYPE: process.env.LORA_TORCH_DTYPE || 'bf16',
+};
 const LOCAL_HF_PATH = path.join(
   ROOT,
   'gateway',
@@ -39,7 +53,6 @@ const LOCAL_GGUF_PATH = path.join(
   'gpt_unlocked',
   'OpenAI-20B-NEO-Uncensored2-IQ4_NL.gguf'
 );
-const PID_FILE = path.join(ROOT, '.stack.pids.json');
 const LOG_FILE = path.join(ROOT, 'stack.log');
 
 function log(obj) { console.log(JSON.stringify({ ts: new Date().toISOString(), ...obj })); }
@@ -47,6 +60,13 @@ function log(obj) { console.log(JSON.stringify({ ts: new Date().toISOString(), .
 function exists(p) { try { fs.statSync(p); return true; } catch { return false; } }
 function isFile(p) { try { return fs.statSync(p).isFile(); } catch { return false; } }
 function isDir(p) { try { return fs.statSync(p).isDirectory(); } catch { return false; } }
+
+function isStackRunning() {
+  try {
+    const row = get(`SELECT COUNT(*) as count FROM stack_pids`);
+    return row.count > 0;
+  } catch { return false; }
+}
 
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -140,8 +160,7 @@ function findLocalModelPath() {
     const maxDepth = 4;
     while (stack.length) {
       const { d, k } = stack.pop();
-      let ents = [];
-      try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { continue; }
+      let ents = []; try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { continue; }
       for (const e of ents) {
         const p = path.join(d, e.name);
         if (e.isDirectory()) { if (k < maxDepth) stack.push({ d: p, k: k + 1 }); }
@@ -166,14 +185,13 @@ function findLocalModelPath() {
     const stack2 = [{ d: root, k: 0 }];
     while (stack2.length) {
       const { d, k } = stack2.pop();
-      let ents = [];
-      try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { continue; }
+      let ents = []; try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { continue; }
       for (const e of ents) {
         const p = path.join(d, e.name);
         if (e.isDirectory()) { if (k < maxDepth) stack2.push({ d: p, k: k + 1 }); }
         else if (e.isFile() && e.name === 'config.json') {
           const dir = path.dirname(p);
-          if (/(^|\/)loras(\/|$)/.test(dir)) continue;
+          if (/(^|\/|\\)loras(\/|\\|$)/.test(dir)) continue;
           const name = path.basename(dir);
           hfHits.push({ name, path: dir });
         }
@@ -211,7 +229,7 @@ function listAllManifestEntries() {
   const out = [];
   for (const r of roots) {
     for (const p of walk(r, 6)) {
-      if (!/\/[0-9]+:?[^/]*$/.test(p)) continue; // likely tag files
+      if (!/\/[0-9]+:?[^\/]*$/.test(p)) continue; // likely tag files
       const ent = parseManifestFile(p);
       if (ent) out.push(ent);
     }
@@ -294,6 +312,7 @@ async function startProcess(cmd, args, opts = {}) {
   child.stdout.on('data', d => { last = d.toString(); process.stdout.write(`[${path.basename(cmd)}] ${last}`); });
   child.stderr.on('data', d => { last = d.toString(); process.stderr.write(`[${path.basename(cmd)}] ${last}`); });
   child.on('error', (e) => log({ event: 'proc_error', cmd, error: String(e && e.message || e) }));
+  setStackPid(path.basename(cmd), child.pid);
   return child;
 }
 
@@ -308,7 +327,7 @@ async function startLlamaServer(modelPath) {
         c.on('close', () => resolve(out));
       });
       const arch = (meta.match(/arch\s*=\s*([\w\-]+)/i) || [])[1] || '';
-      const name = (meta.match(/general\.name\s+str\s*=\s*(.+)/i) || [])[1] || '';
+      const name = (meta.match(/general.name\s+str\s*=\s*(.+)/i) || [])[1] || '';
       const causal = /causal\s*attn\s*=\s*1|true/i.test(meta);
       log({ event: 'model_meta', arch, name: name.trim(), causal });
     } catch {}
@@ -476,6 +495,7 @@ async function ensureSearxng() {
 async function startGateway(loraBase) {
   const env = {
     ...process.env,
+    ...GEN_DEFAULTS,
     LORA_SERVER_BASE: loraBase,
     SEARXNG_BASE,
     GATEWAY_PORT: String(GATEWAY_PORT),
@@ -493,6 +513,11 @@ async function startGateway(loraBase) {
   const base = `http://127.0.0.1:${GATEWAY_PORT}`;
   if (await httpOk(`${base}/health`)) {
     log({ event: 'reuse_gateway', base });
+    // best effort: discover PID and record
+    try {
+      const pids = await getProcessesOnPorts([GATEWAY_PORT]);
+      if (pids && pids[0]) setStackPid('gateway', pids[0]);
+    } catch {}
     return { child: null, base };
   }
   log({ event: 'start_gateway', port: GATEWAY_PORT, loraModelPath: env.LORA_MODEL_PATH });
@@ -508,10 +533,17 @@ async function startLoraServer() {
   const base = `http://127.0.0.1:${LORA_SERVER_PORT}`;
   if (await httpOk(`${base}/models`)) {
     log({ event: 'reuse_lora_server', base });
+    // best effort: discover PID and record
+    try {
+      const pids = await getProcessesOnPorts([LORA_SERVER_PORT]);
+      if (pids && pids[0]) setStackPid('lora', pids[0]);
+    } catch {}
     return { child: null, base };
   }
   log({ event: 'start_lora_server', py, port: LORA_SERVER_PORT });
-  const child = startProcess(py, [script], { env: { ...process.env, PORT: String(LORA_SERVER_PORT) } });
+  const child = startProcess(py, [script], {
+    env: { ...process.env, ...GEN_DEFAULTS, PORT: String(LORA_SERVER_PORT) },
+  });
   for (let i = 0; i < 60; i++) { if (await httpOk(`${base}/models`)) break; await sleep(1000); }
   return { child, base };
 }
@@ -594,22 +626,223 @@ async function streamWarmupWithFeedback(gwBase, { timeoutMs = 10000 } = {}) {
   } finally { clearTimeout(to); }
 }
 
-async function stopStack() {
-  if (!exists(PID_FILE)) {
-    console.log('Stack not running (no PID file found).');
-    return;
-  }
-  console.log('Stopping stack...');
-  const pids = JSON.parse(fs.readFileSync(PID_FILE, 'utf8'));
-  const managerPid = pids.manager;
+// Get processes listening on specific ports using various methods
+async function getProcessesOnPorts(ports) {
+  const pids = new Set();
 
-  if (managerPid) {
+  // Try lsof first
+  try {
+    for (const port of ports) {
+      const { spawn } = await import('child_process');
+      const proc = spawn('lsof', ['-ti', `:${port}`], { stdio: ['ignore', 'pipe', 'ignore'] });
+      const chunks = [];
+      proc.stdout.on('data', d => chunks.push(d));
+      await new Promise((resolve, reject) => {
+        proc.on('close', resolve);
+        proc.on('error', reject);
+      });
+      const output = Buffer.concat(chunks).toString('utf8').trim();
+      if (output) {
+        output.split('\n').forEach(line => {
+          const pid = parseInt(line.trim());
+          if (!isNaN(pid)) pids.add(pid);
+        });
+      }
+    }
+  } catch {}
+
+  // Try netstat as fallback
+  if (pids.size === 0) {
     try {
-      process.kill(-managerPid, 'SIGTERM');
-      console.log(`  - Sent SIGTERM to manager process group (pgid: ${managerPid}).`);
-    } catch (e) {
-      console.log(`  - Failed to kill process group ${managerPid}: ${e.message}.`);
-      console.log('  - Falling back to killing processes individually.');
+      for (const port of ports) {
+        const { spawn } = await import('child_process');
+        const proc = spawn('netstat', ['-tulpn'], { stdio: ['ignore', 'pipe', 'ignore'] });
+        const chunks = [];
+        proc.stdout.on('data', d => chunks.push(d));
+        await new Promise((resolve, reject) => {
+          proc.on('close', resolve);
+          proc.on('error', reject);
+        });
+        const output = Buffer.concat(chunks).toString('utf8');
+        const lines = output.split('\n');
+        for (const line of lines) {
+          if (line.includes(`:${port} `) && line.includes('LISTEN')) {
+            const match = line.match(/(\d+)\/);
+            if (match) {
+              const pid = parseInt(match[1]);
+              if (!isNaN(pid)) pids.add(pid);
+            }
+          }
+        }
+      }
+    } catch {}
+  }
+
+  return Array.from(pids);
+}
+
+// Get processes by name/command using pgrep
+async function getProcessesByName(patterns) {
+  const pids = new Set();
+
+  try {
+    for (const pattern of patterns) {
+      const { spawn } = await import('child_process');
+      const proc = spawn('pgrep', ['-f', pattern], { stdio: ['ignore', 'pipe', 'ignore'] });
+      const chunks = [];
+      proc.stdout.on('data', d => chunks.push(d));
+      await new Promise((resolve, reject) => {
+        proc.on('close', resolve);
+        proc.on('error', reject);
+      });
+      const output = Buffer.concat(chunks).toString('utf8').trim();
+      if (output) {
+        output.split('\n').forEach(line => {
+          const pid = parseInt(line.trim());
+          if (!isNaN(pid)) pids.add(pid);
+        });
+      }
+    }
+  } catch {}
+
+  return Array.from(pids);
+}
+
+// Stop Docker/Podman containers
+async function stopContainers() {
+  const containers = ['searxng'];
+
+  // Try docker first
+  try {
+    for (const container of containers) {
+      const { spawn } = await import('child_process');
+      const proc = spawn('docker', ['stop', container], { stdio: ['ignore', 'pipe', 'ignore'] });
+      await new Promise((resolve, reject) => {
+        proc.on('close', resolve);
+        proc.on('error', reject);
+      });
+      console.log(`  - Stopped Docker container: ${container}`);
+    }
+  } catch {}
+
+  // Try podman as fallback
+  try {
+    for (const container of containers) {
+      const { spawn } = await import('child_process');
+      const proc = spawn('podman', ['stop', container], { stdio: ['ignore', 'pipe', 'ignore'] });
+      await new Promise((resolve, reject) => {
+        proc.on('close', resolve);
+        proc.on('error', reject);
+      });
+      console.log(`  - Stopped Podman container: ${container}`);
+    }
+  } catch {}
+}
+
+async function stopStack(force = false) {
+  const hasPidFile = isStackRunning();
+
+  if (force) {
+    console.log('Force stopping stack processes (PID DB only)...');
+
+    // Prefer strict DB PID shutdown to avoid terminating unrelated apps (e.g., VS Code)
+    let killed = 0;
+    if (hasPidFile) {
+      try {
+        const pids = getAllStackPids();
+        for (const name in pids) {
+          const pid = pids[name];
+          if (pid) {
+            try {
+              process.kill(pid, 'SIGTERM');
+              console.log(`    - ${name} (pid: ${pid}) stopped.`);
+              killed++;
+            } catch (e) {
+              console.log(`    - ${name} (pid: ${pid}) not running: ${e.message}`);
+            }
+          }
+        }
+        // If any expected pid is missing, attempt to discover and stop by port
+        if (!pids.gateway) {
+          const gp = await getProcessesOnPorts([GATEWAY_PORT]);
+          if (gp && gp[0]) { try { process.kill(gp[0], 'SIGTERM'); killed++; } catch {} }
+        }
+        if (!pids.lora) {
+          const lp = await getProcessesOnPorts([LORA_SERVER_PORT]);
+          if (lp && lp[0]) { try { process.kill(lp[0], 'SIGTERM'); killed++; } catch {} }
+        }
+      } catch (e) {
+        console.log(`  - Error reading PID DB: ${e.message}`);
+      }
+    }
+
+    // Optional broad kill only when explicitly enabled
+    if (killed === 0 && process.env.STACK_WIDE_KILL === '1') {
+      console.log('  - PID file empty; performing wide kill (STACK_WIDE_KILL=1)');
+      // Define ports to check (gateway, lora, searxng, emepath range)
+      const ports = [
+        GATEWAY_PORT,
+        LORA_SERVER_PORT,
+        SEARXNG_PORT,
+        ...Array.from({ length: 100 }, (_, i) => 51100 + i),
+      ];
+      const portPids = await getProcessesOnPorts(ports);
+      for (const pid of portPids) {
+        try { process.kill(pid, 'SIGTERM'); killed++; } catch {}
+      }
+      const nodePids = await getProcessesByName(['EmePath.js', 'gateway/server.js']);
+      for (const pid of nodePids) { try { process.kill(pid, 'SIGTERM'); killed++; } catch {} }
+      const pyPids = await getProcessesByName(['lora_server.py', 'uvicorn']);
+      for (const pid of pyPids) { try { process.kill(pid, 'SIGTERM'); killed++; } catch {} }
+    }
+
+    // Stop containers only if requested
+    if (process.env.STACK_STOP_CONTAINERS === '1') {
+      await stopContainers();
+    }
+
+    // Clear PID records from DB
+    if (hasPidFile) {
+      try {
+        run(`DELETE FROM stack_pids`, []);
+      } catch (e) {
+        console.log(`  - Failed to clear PID records: ${e.message}`);
+      }
+    }
+
+    console.log('Force stop completed.');
+
+  } else {
+    // Original graceful stop logic
+    if (!hasPidFile) {
+      console.log('Stack not running (no PID records in DB).');
+      return;
+    }
+    console.log('Stopping stack gracefully...');
+    const pids = getAllStackPids();
+    const managerPid = pids.manager;
+
+    if (managerPid) {
+      try {
+        process.kill(-managerPid, 'SIGTERM');
+        console.log(`  - Sent SIGTERM to manager process group (pgid: ${managerPid}).`);
+      } catch (e) {
+        console.log(`  - Failed to kill process group ${managerPid}: ${e.message}.`);
+        console.log('  - Falling back to killing processes individually.');
+        for (const name in pids) {
+          const pid = pids[name];
+          if (pid) {
+            try {
+              process.kill(pid, 'SIGTERM');
+              console.log(`    - ${name} (pid: ${pid}) stopped.`);
+            } catch (e) {
+              console.log(`    - ${name} (pid: ${pid}) already stopped or failed to stop: ${e.message}`);
+            }
+          }
+        }
+      }
+    } else {
+      console.log('  - No manager PID found, killing processes individually.');
       for (const name in pids) {
         const pid = pids[name];
         if (pid) {
@@ -622,50 +855,25 @@ async function stopStack() {
         }
       }
     }
-  } else {
-    console.log('  - No manager PID found, killing processes individually.');
-    for (const name in pids) {
-      const pid = pids[name];
-      if (pid) {
-        try {
-          process.kill(pid, 'SIGTERM');
-          console.log(`    - ${name} (pid: ${pid}) stopped.`);
-        } catch (e) {
-          console.log(`    - ${name} (pid: ${pid}) already stopped or failed to stop: ${e.message}`);
-        }
-      }
-    }
-  }
 
-  // Wait for PID file to be removed by the manager's shutdown handler
-  for (let i = 0; i < 5; i++) {
-    if (!exists(PID_FILE)) {
-      console.log('Stack stopped.');
-      return;
-    }
-    await sleep(500);
+    // Clear PID records from DB
+    run(`DELETE FROM stack_pids`, []);
+    console.log('Stack stopped.');
   }
-
-  console.log('Manager did not remove PID file, removing it now.');
-  try {
-    fs.unlinkSync(PID_FILE);
-  } catch (e) {
-    console.log(`Failed to remove PID file: ${e.message}`);
-  }
-  console.log('Stack stopped.');
 }
 
 async function main() {
   const argv = new Set(process.argv.slice(2));
 
   if (argv.has('--stop') || argv.has('--shutdown')) {
-    await stopStack();
+    const force = argv.has('--force');
+    await stopStack(force);
     return;
   }
 
   if (argv.has('--start')) {
     // If a previous stack is running, stop it first to avoid orphaned processes
-    if (exists(PID_FILE)) {
+    if (isStackRunning()) {
       console.log('Existing stack detected. Stopping before start...');
       await stopStack();
     }
@@ -682,8 +890,7 @@ async function main() {
     process.exit(0);
   }
 
-  const pids = { manager: process.pid };
-  fs.writeFileSync(PID_FILE, JSON.stringify(pids, null, 2));
+  setStackPid('manager', process.pid);
 
   try {
     // Optional preflight-only mode: --check
@@ -704,13 +911,9 @@ async function main() {
     }
     // Start LoRA server (Python) instead of llama.cpp/ollama
     const { child: loraProc, base: loraBase } = await startLoraServer();
-    pids.lora = loraProc?.pid;
-    fs.writeFileSync(PID_FILE, JSON.stringify(pids, null, 2));
 
     startup.push('lora server ready', { level: 'ok' });
     const { child: gwProc, base: gwBase } = await startGateway(loraBase);
-    pids.gateway = gwProc?.pid;
-    fs.writeFileSync(PID_FILE, JSON.stringify(pids, null, 2));
 
     startup.push('gateway listening', { level: 'ok' });
 
@@ -779,7 +982,7 @@ async function main() {
       // Leave llama-server running unless explicitly disabled via config
       try { loraProc?.kill('SIGTERM'); } catch {}
       try { gwProc.kill('SIGTERM'); } catch {}
-      try { fs.unlinkSync(PID_FILE); } catch {}
+      try { run(`DELETE FROM stack_pids`, []); } catch {}
     };
     process.once('SIGINT', () => { shutdown(); process.exit(130); });
     process.once('SIGTERM', () => { shutdown(); process.exit(143); });
@@ -788,7 +991,7 @@ async function main() {
     await new Promise(resolve => {});
   } catch (e) {
     log({ event: 'fatal', error: String(e && e.message || e) });
-    try { fs.unlinkSync(PID_FILE); } catch {} // cleanup pid file on startup error
+    try { run(`DELETE FROM stack_pids`, []); } catch {} // cleanup pid records on startup error
     process.exit(1);
   }
 }

@@ -6,11 +6,34 @@ import { cacheGet, cachePut, logLLM } from '../db/db.js';
 export async function chatUseCase(req, res, deps) {
   const { getTimeoutMs, log } = deps;
   const body = req.body || {};
-  const messages = body.messages || [];
+  let messages = Array.isArray(body.messages) ? body.messages.slice() : [];
   const temperature =
     typeof body.temperature === 'number' ? body.temperature : 0.2;
   const maxTokens =
     typeof body.maxTokens === 'number' ? body.maxTokens : undefined;
+  // Optionally inject a system prompt describing EmePath identity and behavior
+  try {
+    const wantSystem = String(process.env.EMEPATH_SYSTEM_PROMPT || '1').toLowerCase();
+    const includeSystem = wantSystem === '1' || wantSystem === 'true';
+    const firstIsSystem = messages.length && String(messages[0]?.role) === 'system';
+    if (includeSystem && !firstIsSystem) {
+      const fs = await import('fs');
+      const path = await import('path');
+      const sysPath = path.resolve(process.cwd(), 'gateway', 'prompts', 'system.txt');
+      let sysText = '';
+      try { sysText = fs.readFileSync(sysPath, 'utf8'); } catch {}
+      const name = process.env.EMEPATH_NAME || 'EmePath';
+      const preface = `${name} system prompt`;
+      const system = [sysText || '', ''].join('\n').trim();
+      if (system) messages.unshift({ role: 'system', content: system });
+    }
+  } catch {}
+  const topP = typeof body.topP === 'number' ? body.topP : undefined;
+  const topK = typeof body.topK === 'number' ? body.topK : undefined;
+  const repetitionPenalty =
+    typeof body.repetitionPenalty === 'number' ? body.repetitionPenalty : undefined;
+  const deterministic =
+    typeof body.deterministic === 'boolean' ? body.deterministic : undefined;
   try {
     // DB-backed cache
     // Normalize messages: role + content only, in order
@@ -19,11 +42,17 @@ export async function chatUseCase(req, res, deps) {
       content: String(m.content ?? ''),
     }));
     const key = stableStringify({
+      cacheV: 2,
       t: 'chat',
       model: body.model || '',
       messages: normMsgs,
       temperature,
       maxTokens,
+      topP,
+      topK,
+      repetitionPenalty,
+      deterministic,
+      fmt: 'hf_chat_template',
       outputContract: body.outputContract || null,
       json: body.responseFormat === 'json' || Boolean(body.outputContract),
     });
@@ -72,6 +101,10 @@ export async function chatUseCase(req, res, deps) {
       loraModel: body.loraModel, // { name, model_path, lora_paths } — LoRA only
       temperature,
       maxTokens,
+      topP,
+      topK,
+      repetitionPenalty,
+      deterministic,
       timeoutMs: getTimeoutMs(),
       outputContract: body.outputContract, // optional strict contract text/JSON schema/example
       json: body.responseFormat === 'json' || Boolean(body.outputContract),
