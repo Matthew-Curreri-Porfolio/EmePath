@@ -82,3 +82,4 @@ gateway/models/base/openai-20b-neo-imatrix/.gitattributes
 gateway/models/base/openai-20b-neo-imatrix/OpenAI-20B-NEO-CODEPlus-Uncensored-IQ4_NL.gguf
 gateway/models/base/openai-20b-neo-imatrix/OpenAI-20B-NEO-CODEPlus16-Uncensored-IQ4_NL.gguf
 gateway/models/base/openai-20b-neo-imatrix/OpenAI-20B-NEO-HRR-CODE-TRI-Uncensored-IQ4_NL.gguf
+gateway/db/app.db

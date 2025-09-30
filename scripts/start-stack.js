@@ -667,7 +667,7 @@ async function getProcessesOnPorts(ports) {
         const lines = output.split('\n');
         for (const line of lines) {
           if (line.includes(`:${port} `) && line.includes('LISTEN')) {
-            const match = line.match(/(\d+)\/);
+            const match = line.match(/(\d+)\//);
             if (match) {
               const pid = parseInt(match[1]);
               if (!isNaN(pid)) pids.add(pid);
