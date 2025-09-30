@@ -20,6 +20,12 @@ npm start
 
 The starter orchestrator (`scripts/start-stack.js`) will reuse running services when present.
 
+Python dependencies (for the LoRA server):
+
+```
+pip install -r requirements.txt
+```
+
 ## Configuration
 
 Config is merged from defaults → local → env.
@@ -34,6 +40,7 @@ Knobs:
 - Search: `SEARXNG_BASE`
 - Model: `LORA_MODEL_NAME`, `LORA_MODEL_PATH`
 - Python: `GATEWAY_PYTHON` or `PYTHON`
+- GGUF (Python runner): optional `LLAMACPP_CTX` (default 2048), `LLAMACPP_THREADS` (default CPU count)
 - Prompts:
   - `PROMPT_INCLUDE_POLICY=true|false`
   - `PROMPT_INCLUDE_PERSONAL=true|false`
@@ -76,6 +83,32 @@ curl "http://127.0.0.1:3123/prompts/preview?key=plan.system&envOs=linux"
 - `GET /searxng?q=...&n=5` — SearXNG JSON results
 - `POST /plan` — safe, verifiable runbook planner
 - `GET /prompts/preview?key=...` — renders composed prompt text
+
+## Local GGUF Inference
+
+This gateway no longer uses a standalone `llama-server` binary. GGUF models are loaded and served in‑process by the Python LoRA server (`gateway/lora_server.py`) under the backend name `gguf-python`.
+
+To enable GGUF inference:
+
+- Install Python deps:
+  - `pip install -r requirements.txt` (installs FastAPI, Uvicorn, and both GGUF runners)
+- Or install a single backend manually if you prefer:
+  - `pip install llama-cpp-python` or `pip install ctransformers`
+- Start the stack normally (`npm start`). The Node gateway calls the Python LoRA server via HTTP.
+- Load a model through the gateway:
+
+```
+curl -X POST http://127.0.0.1:8000/load_model \
+  -H 'content-type: application/json' \
+  -d '{"name":"local","model_path":"/path/to/model.gguf"}'
+```
+
+Optional environment tuning for the Python GGUF runner:
+
+- `LLAMACPP_CTX` — context window (default `2048`)
+- `LLAMACPP_THREADS` — CPU threads (default: CPU count)
+
+Deprecated: previous `llama-server` flow and related env vars (e.g., `LLAMACPP_BIN`, `LLAMACPP_SERVER`) are no longer used. Any old runtime endpoints have been removed from routing.
 
 ### Projects (authenticated)
 

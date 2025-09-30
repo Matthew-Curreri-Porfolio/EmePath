@@ -24,6 +24,21 @@ const GATEWAY_PORT = CFG.ports.gateway;
 const SEARXNG_BASE = CFG.searxng.base;
 const SEARXNG_PORT = Number(process.env.SEARXNG_PORT || 8888);
 const SEARXNG_HOST = process.env.SEARXNG_HOST || '127.0.0.1';
+const LOCAL_HF_PATH = path.join(
+  ROOT,
+  'gateway',
+  'models',
+  'base',
+  'gpt-oss-20b-bf16'
+);
+const LOCAL_GGUF_PATH = path.join(
+  ROOT,
+  'gateway',
+  'models',
+  'base',
+  'gpt_unlocked',
+  'OpenAI-20B-NEO-Uncensored2-IQ4_NL.gguf'
+);
 const PID_FILE = path.join(ROOT, '.stack.pids.json');
 const LOG_FILE = path.join(ROOT, 'stack.log');
 
@@ -113,6 +128,70 @@ async function isGenerativeModel(p) {
 }
 
 function discoverManifestRoots() { return manifestRoots(); }
+
+function findLocalModelPath() {
+  // Priority: a) explicit GGUF under gateway/models (prefer names with unlocked/uncensored)
+  //           b) any GGUF under gateway/models
+  //           c) HF directory containing config.json (prefer qwen*)
+  try {
+    const root = path.join(ROOT, 'gateway', 'models');
+    const ggufHits = [];
+    const stack = [{ d: root, k: 0 }];
+    const maxDepth = 4;
+    while (stack.length) {
+      const { d, k } = stack.pop();
+      let ents = [];
+      try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { continue; }
+      for (const e of ents) {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) { if (k < maxDepth) stack.push({ d: p, k: k + 1 }); }
+        else if (e.isFile() && p.toLowerCase().endsWith('.gguf')) {
+          ggufHits.push({ path: p, name: path.basename(p) });
+        }
+      }
+    }
+    if (ggufHits.length) {
+      const scoreG = (nm) => {
+        const s = nm.toLowerCase();
+        let score = 0;
+        if (/unlocked|uncensored|abliterated|gpt_unlocked/.test(s)) score += 1000;
+        if (/qwen|llama|mistral|gemma|phi|deepseek/.test(s)) score += 100;
+        return score;
+      };
+      ggufHits.sort((a, b) => scoreG(b.name) - scoreG(a.name));
+      return ggufHits[0].path;
+    }
+    // HF fallback
+    const hfHits = [];
+    const stack2 = [{ d: root, k: 0 }];
+    while (stack2.length) {
+      const { d, k } = stack2.pop();
+      let ents = [];
+      try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { continue; }
+      for (const e of ents) {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) { if (k < maxDepth) stack2.push({ d: p, k: k + 1 }); }
+        else if (e.isFile() && e.name === 'config.json') {
+          const dir = path.dirname(p);
+          if (/(^|\/)loras(\/|$)/.test(dir)) continue;
+          const name = path.basename(dir);
+          hfHits.push({ name, path: dir });
+        }
+      }
+    }
+    if (hfHits.length) {
+      const score = (n) => {
+        const s = n.toLowerCase();
+        if (/qwen/.test(s)) return 100;
+        if (/mistral|gemma|phi/.test(s)) return 80;
+        return 10;
+      };
+      hfHits.sort((a, b) => score(b.name) - score(a.name) || a.name.localeCompare(b.name));
+      return hfHits[0].path;
+    }
+    return '';
+  } catch { return ''; }
+}
 
 function parseManifestFile(p) {
   try {
@@ -402,7 +481,13 @@ async function startGateway(loraBase) {
     GATEWAY_PORT: String(GATEWAY_PORT),
     // Provide sensible defaults for Unsloth HF models if not set
     LORA_MODEL_NAME: process.env.LORA_MODEL_NAME || 'qwen3-7b',
-    LORA_MODEL_PATH: process.env.LORA_MODEL_PATH || DEFAULT_UNSLOTH_BASE,
+    LORA_MODEL_PATH: (() => {
+      if (process.env.LORA_MODEL_PATH) return process.env.LORA_MODEL_PATH;
+      if (isDir(LOCAL_HF_PATH)) return LOCAL_HF_PATH;
+      if (isFile(LOCAL_GGUF_PATH)) return LOCAL_GGUF_PATH;
+      const local = findLocalModelPath();
+      return local || DEFAULT_UNSLOTH_BASE;
+    })(),
   };
   const entry = path.join(ROOT, 'gateway/server.js');
   const base = `http://127.0.0.1:${GATEWAY_PORT}`;
@@ -410,7 +495,7 @@ async function startGateway(loraBase) {
     log({ event: 'reuse_gateway', base });
     return { child: null, base };
   }
-  log({ event: 'start_gateway', port: GATEWAY_PORT });
+  log({ event: 'start_gateway', port: GATEWAY_PORT, loraModelPath: env.LORA_MODEL_PATH });
   const child = startProcess('node', [entry], { env });
   for (let i = 0; i < 20; i++) { if (await httpOk(`${base}/health`)) break; await sleep(500); }
   return { child, base };

@@ -1,0 +1,13 @@
+fastapi>=0.110
+uvicorn[standard]>=0.23
+pydantic>=2.6
+
+# GGUF Python backends (either one is sufficient)
+llama-cpp-python>=0.2.84
+ctransformers>=0.2.27
+
+# Optional: HF backend for transformer models + LoRA adapters
+# Uncomment if you plan to use HF models instead of GGUF
+# transformers>=4.42.0
+# peft>=0.11.1
+# torch>=2.1

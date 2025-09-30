@@ -32,10 +32,6 @@ import {
 import { getModels } from '../usecases/models.js';
 
 import {
-  startLlamaServerUseCase,
-  stopLlamaServerUseCase,
-} from '../usecases/runtime.js';
-import {
   trainingGet,
   trainingPut,
   trainingPatch,

@@ -425,6 +425,9 @@ async function startServer(brain, { projectId, userId, argv }) {
   app.use(express.json({ limit: '2mb' }));
   app.use(express.text({ type: ['text/*', 'application/x-ndjson'], limit: '2mb' }));
 
+  // Serve static files from public directory
+  app.use(express.static(path.resolve(process.cwd(), 'public')));
+
   // Attach console logger to file for UI terminal tail
   try { attachConsoleFileLogger(); } catch {}
 
@@ -813,6 +816,12 @@ async function startServer(brain, { projectId, userId, argv }) {
     }
   });
 
+  // Static UI
+  app.use(express.static(path.resolve(process.cwd(), 'public')));
+  app.get('/ui', (_req, res) => {
+    res.sendFile(path.resolve(process.cwd(), 'public', 'index.html'));
+  });
+
   // Pin chat content to plan (and optionally spawn an agent)
   app.post('/pin', async (req, res) => {
     try {
@@ -862,13 +871,62 @@ async function startServer(brain, { projectId, userId, argv }) {
     }
   });
 
+  // SSE: Rolling terminal
+  app.get('/term/sse', async (req, res) => {
+    try {
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+      });
+      const dir = path.resolve(process.cwd(), 'logs');
+      const tlog = path.join(dir, 'terminal.log');
+      let timer = setInterval(async () => {
+        try {
+          const ttxt = fs.existsSync(tlog) ? await readFileSafe(tlog) : '';
+          const tail = (s) => s.split(/\r?\n/).slice(-200).join('\n');
+          res.write('data: ' + JSON.stringify({ text: tail(ttxt) }) + '\n\n');
+        } catch {}
+      }, 2000);
+      req.on('close', () => clearInterval(timer));
+    } catch (e) {
+      res.status(500).end();
+    }
+  });
+
+  // SSE: Rolling agent/chat logs for project
+  app.get('/logs/sse', async (req, res) => {
+    try {
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+      });
+      const pid = toStr(req.query?.project || projectId);
+      const dir = path.resolve(process.cwd(), 'logs');
+      const alog = path.join(dir, `agent.${pid.replace(/[^a-zA-Z0-9_.-]+/g, '_')}.log`);
+      const clog = path.join(dir, `chat.${pid.replace(/[^a-zA-Z0-9_.-]+/g, '_')}.jsonl`);
+      let timer = setInterval(async () => {
+        try {
+          const atxt = fs.existsSync(alog) ? await readFileSafe(alog) : '';
+          const ctxt = fs.existsSync(clog) ? await readFileSafe(clog) : '';
+          const tail = (s) => s.split(/\r?\n/).slice(-200).join('\n');
+          res.write('data: ' + JSON.stringify({ text: `# Agent Log\n${tail(atxt)}\n\n# Chat Log\n${tail(ctxt)}` }) + '\n\n');
+        } catch {}
+      }, 2000);
+      req.on('close', () => clearInterval(timer));
+    } catch (e) {
+      res.status(500).end();
+    }
+  });
+
   // Simple chat
   app.get('/chat', (req, res) => {
     try {
       const pid = toStr(req.query?.project || projectId);
       let msgs = CHATS.get(pid) || [];
       if (!msgs || msgs.length === 0) {
-        try { msgs = hydrateChatHistory(pid) || []; } catch {}
+        try { msgs = hydrateChatHistory(pid, userId) || []; } catch {}
         CHATS.set(pid, msgs);
       }
       res.json({ ok: true, projectId: pid, messages: msgs.slice(-100) });
@@ -883,7 +941,7 @@ async function startServer(brain, { projectId, userId, argv }) {
       const text = toStr(req.body?.text || '');
       const wantTextOut = toStr(req.query?.format || '').toLowerCase() === 'text' || (req.headers.accept || '').includes('text/plain');
       if (!text) return res.status(400).json({ ok: false, error: 'missing_text' });
-      appendChat(pid, 'user', text);
+      appendChat(pid, 'user', text, uid);
       let reply = '';
       try {
         const messages = buildChatMessages(pid);
@@ -898,7 +956,7 @@ async function startServer(brain, { projectId, userId, argv }) {
           reply = '[error] ' + toStr(e?.message || e);
         }
       }
-      appendChat(pid, 'assistant', reply);
+      appendChat(pid, 'assistant', reply, uid);
       await maybeSummarize(pid, uid);
       const payload = { ok: true, projectId: pid, reply, messages: (CHATS.get(pid) || []).slice(-100) };
       if (wantTextOut) return res.type('text/plain').send(reply);
@@ -908,9 +966,45 @@ async function startServer(brain, { projectId, userId, argv }) {
     }
   });
 
-  // Minimal web UI
-  app.get('/ui', (_req, res) => {
-    res.type('text/html').send(renderModernUI());
+  // Chat export (DB preferred) and clear
+  app.get('/chat/export', async (req, res) => {
+    try {
+      const pid = toStr(req.query?.project || projectId);
+      res.setHeader('content-type', 'application/x-ndjson');
+      res.setHeader('content-disposition', `attachment; filename="chat.${pid}.jsonl"`);
+      let nd = '';
+      try {
+        if (typeof db.listChatMessages === 'function') {
+          const rows = db.listChatMessages(userId, pid, { limit: 10000, asc: true });
+          nd = rows.map(r => JSON.stringify({ role: r.role, content: r.content, ts: r.createdAt })).join('\n') + '\n';
+        }
+      } catch {}
+      if (!nd) {
+        const file = path.resolve(process.cwd(), 'logs', `chat.${pid.replace(/[^a-zA-Z0-9_.-]+/g, '_')}.jsonl`);
+        nd = fs.existsSync(file) ? await readFileSafe(file) : '';
+      }
+      res.send(nd);
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
+    }
+  });
+  app.post('/chat/clear', async (req, res) => {
+    try {
+      const pid = toStr(req.body?.project || req.query?.project || projectId);
+      CHATS.set(pid, []);
+      try { if (typeof db.clearChatMessages === 'function') db.clearChatMessages(userId, pid); } catch {}
+      try {
+        const file = path.resolve(process.cwd(), 'logs', `chat.${pid.replace(/[^a-zA-Z0-9_.-]+/g, '_')}.jsonl`);
+        if (fs.existsSync(file)) {
+          const bak = file + '.' + Date.now() + '.bak';
+          try { fs.renameSync(file, bak); } catch {}
+          try { fs.writeFileSync(file, ''); } catch {}
+        }
+      } catch {}
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
+    }
   });
 
   // Agent management endpoints
@@ -1192,8 +1286,10 @@ async function executeBootstrapLoRA(brain, projectId, args = {}) {
   await executeScanAgent(brain, projectId, { ...scanAgent, kind: 'scan' });
   // Distill
   const distillAgent = brain._spawnAgent({ projectId, goal: 'Bootstrap: distill sources', input: JSON.stringify({ files: sources }), expected: 'JSONL dataset' });
-  const hasModelPath = !!process.env.LORA_MODEL_PATH;
-  if (hasModelPath) {
+  // Use effective default model config rather than env-only check
+  let hasEffectiveModel = false;
+  try { const eff = brain._defaultModelConfig(); hasEffectiveModel = !!String(eff?.model_path || '').trim(); } catch { hasEffectiveModel = false; }
+  if (hasEffectiveModel) {
     await executeDistillAgent(brain, projectId, { ...distillAgent, kind: 'distill' }, { baseUrl: '' });
   } else {
     // Create a placeholder dataset plan instead of running LLM distillation
@@ -2145,21 +2241,32 @@ async function doRollingRestart({ portStart, portEnd, currentPort, argv }) {
     WATCH_STATE.step = 'staging'; WATCH_STATE.targetPort = newPort;
     console.log(`[watch] change detected — starting new instance on :${newPort}`);
     const childA = spawn(process.execPath, [process.argv[1], '--server', '--port', String(newPort), '--portStart', String(portStart), '--portEnd', String(portEnd)], { env: { ...process.env, EMEPATH_WATCH_CHILD: '1' }, stdio: 'inherit' });
-    const okA = await waitHealth(newPort, 15000);
+    const okA = await waitHealth(newPort, 20000);
     if (!okA) { console.warn('[watch] new instance failed health'); try { childA.kill(); } catch {}; return; }
-    // Switch: stop current server, then start new child on old port
+    // Switch: stop current server, then delegate full restart to npm scripts
     WATCH_STATE.step = 'switching';
     await gracefulClose(CURRENT_SERVER, 5000);
-    console.log(`[watch] starting replacement on original :${currentPort}`);
-    const childB = spawn(process.execPath, [process.argv[1], '--server', '--port', String(currentPort), '--portStart', String(portStart), '--portEnd', String(portEnd)], { env: { ...process.env, EMEPATH_WATCH_CHILD: '1' }, stdio: 'inherit' });
-    const okB = await waitHealth(currentPort, 15000);
+    console.log(`[watch] delegating restart via npm (target original :${currentPort})`);
+    try {
+      const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+      const child = spawn(npmCmd, ['run', '-s', 'restart'], {
+        cwd: process.cwd(),
+        env: { ...process.env, EMEPATH_PORT: String(currentPort) },
+        detached: true,
+        stdio: 'ignore',
+      });
+      child.unref?.();
+    } catch (e) {
+      console.warn('[watch] failed to spawn npm restart:', String(e?.message || e));
+    }
+    // Wait for new instance on original port
+    const okB = await waitHealth(currentPort, 60000);
     if (okB) {
-      console.log('[watch] replacement healthy; stopping blue instance');
+      console.log('[watch] npm restart healthy; stopping blue instance');
       try { childA.kill(); } catch {}
-      // Exit current to let replacement take over
       setTimeout(() => process.exit(0), 500);
     } else {
-      console.warn('[watch] replacement failed; keeping blue instance on :' + newPort);
+      console.warn('[watch] npm restart failed to become healthy; keeping blue instance on :' + newPort);
     }
   } catch (e) {
     console.warn('[watch] error:', String(e?.message || e));

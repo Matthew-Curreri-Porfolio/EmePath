@@ -1,0 +1,69 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EmePath</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="rail">
+        <div class="brand"><span class="badge">E</span><span>EmePath</span></div>
+        <div class="rail-top">
+          <div class="topTitle">Projects</div>
+          <div class="controls"><button class="btn" id="pause">Pause</button><button class="btn" id="resume">Resume</button></div>
+        </div>
+        <div id="projects" class="projects"></div>
+        <div class="section"><div class="topTitle">Agents</div><div id="agents" class="agents"></div></div>
+        <div class="section"><div class="topTitle">Terminal <button class="btn sm" id="toggleTerm">Show</button></div><div id="termWrap" class="coll"><div id="term" class="logs"></div></div></div>
+        <div class="section"><div class="topTitle">Agent/Chat Logs <button class="btn sm" id="toggleLogs">Show</button></div><div id="logsWrap" class="coll"><div id="logs" class="logs"></div></div></div>
+      </aside>
+
+      <section class="canvas">
+        <div class="topbar">
+          <div class="topTitle" id="projTitle">Flow <span id="watchbar" class="pill paused" style="display:none"></span></div>
+          <div class="controls"><button class="btn" id="openInterrupt">Interrupt</button><button class="btn" id="openPalette">Actions ⌘K</button><button class="btn" id="openPlan">Plan</button><button class="btn" id="openMemory">Memory</button></div>
+        </div>
+        <svg id="graph"></svg>
+      </section>
+
+      <aside class="dock">
+        <div class="topbar">
+          <div class="topTitle">Conversation</div>
+          <div class="controls"><a class="btn" href="#" id="exportChat">Export</a><button class="btn" id="clearChat">Clear</button></div>
+        </div>
+        <div class="chat" id="chat"></div>
+        <div class="input"><textarea id="ta" placeholder="Type a message…"></textarea><button class="btn send" id="send">Send</button></div>
+      </aside>
+    </div>
+
+    <div id="palette" class="overlay">
+      <div class="palBox">
+        <input id="palInput" placeholder="Type a command… (e.g., Plan distill ./documents)" />
+        <div class="palList" id="palList"></div>
+      </div>
+    </div>
+
+    <div id="interrupt" class="floatBox">
+      <div class="topTitle">Interrupt (Double Message)</div>
+      <textarea id="intA" rows="3" placeholder="Message A"></textarea>
+      <textarea id="intB" rows="3" placeholder="Message B"></textarea>
+      <div class="controls"><button class="btn" id="sendInterrupt">Send Interrupt</button><button class="btn" id="closeInterrupt">Close</button></div>
+      <div class="out" id="intOut"></div>
+    </div>
+
+    <div id="plan" class="drawer right">
+      <div class="drawer-head"><div class="topTitle">Plan</div><div class="controls"><button class="btn" id="closePlan">Close</button></div></div>
+      <div id="planBody" class="drawer-body"></div>
+    </div>
+
+    <div id="memory" class="drawer bottom">
+      <div class="drawer-head"><div class="topTitle">Memory Ladder</div><div class="controls"><button class="btn" id="closeMemory">Close</button></div></div>
+      <div id="memBody" class="drawer-body row"></div>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+  </html>
+

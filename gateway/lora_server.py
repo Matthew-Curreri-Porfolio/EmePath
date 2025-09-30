@@ -53,6 +53,7 @@ Notes
 from typing import Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
+import logging
 import os
 try:
     # Optional: mirror settings from gateway/config.py if available
@@ -62,18 +63,33 @@ except Exception:
     CFG = None
 from pydantic import BaseModel
 
-try:
-    # The required dependencies.  These imports will succeed if you have
-    # installed ``transformers`` and ``peft`` in your environment.  If
-    # missing, you can install them via pip: ``pip install transformers peft``.
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-    from peft import PeftModel
-except ImportError as e:
-    # If dependencies are missing, raise a clear error.  The server will not
-    # run without them.
-    raise RuntimeError(
-        "Required libraries not found. Please install 'transformers' and 'peft'"
-    ) from e
+# Optional HF deps — imported lazily only when used
+AutoModelForCausalLM = None
+AutoTokenizer = None
+PeftModel = None
+
+from shutil import which
+import subprocess
+import socket
+import time
+import json
+from urllib.request import Request, urlopen
+from urllib.error import URLError, HTTPError
+
+
+def _lazy_import_hf() -> bool:
+    global AutoModelForCausalLM, AutoTokenizer, PeftModel
+    if AutoModelForCausalLM is not None:
+        return True
+    try:
+        from transformers import AutoModelForCausalLM as _AutoModelForCausalLM, AutoTokenizer as _AutoTokenizer
+        from peft import PeftModel as _PeftModel
+        AutoModelForCausalLM = _AutoModelForCausalLM
+        AutoTokenizer = _AutoTokenizer
+        PeftModel = _PeftModel
+        return True
+    except Exception:
+        return False
 
 
 app = FastAPI(title="LoRA Model Server", version="0.1.0")
@@ -85,6 +101,220 @@ _models: Dict[str, Dict[str, object]] = {}
 
 # ``_loras`` maps a model name to a list of adapter names loaded for that model.
 _loras: Dict[str, List[str]] = {}
+
+# GGUF backend registry: name -> in-process runner (Python), no external server.
+# Map: name -> { kind: 'gguf-python', runner: object, model_path: str }
+_gguf: Dict[str, Dict[str, object]] = {}
+
+
+def _is_gguf_path(p: str) -> bool:
+    p = str(p or '')
+    if p.lower().endswith('.gguf'):
+        return True
+    try:
+        if os.path.isdir(p):
+            for fn in os.listdir(p):
+                if fn.lower().endswith('.gguf'):
+                    return True
+    except Exception:
+        pass
+    return False
+
+
+def _find_gguf_file(p: str) -> Optional[str]:
+    p = str(p or '')
+    if p.lower().endswith('.gguf'):
+        return p
+    try:
+        if os.path.isdir(p):
+            cands = [os.path.join(p, fn) for fn in os.listdir(p) if fn.lower().endswith('.gguf')]
+            if cands:
+                # pick the largest as a heuristic for main model
+                cands.sort(key=lambda f: os.stat(f).st_size if os.path.exists(f) else 0, reverse=True)
+                return cands[0]
+    except Exception:
+        pass
+    return None
+
+
+def _pick_free_port(start: int = 10050, end: int = 10150) -> int:
+    for port in range(start, end + 1):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.bind(('127.0.0.1', port))
+                return port
+            except OSError:
+                continue
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('127.0.0.1', 0))
+        return int(s.getsockname()[1])
+
+
+def _http_post_json(url: str, body: dict, timeout: float = 30.0) -> dict:
+    data = json.dumps(body or {}).encode('utf-8')
+    req = Request(url, data=data, method='POST', headers={'content-type': 'application/json'})
+    with urlopen(req, timeout=timeout) as r:
+        text = r.read().decode('utf-8')
+        try:
+            return json.loads(text)
+        except Exception:
+            raise RuntimeError(f'Invalid JSON from {url}')
+
+
+def _http_get_json(url: str, timeout: float = 10.0) -> dict:
+    req = Request(url, method='GET')
+    with urlopen(req, timeout=timeout) as r:
+        text = r.read().decode('utf-8')
+        try:
+            return json.loads(text)
+        except Exception:
+            raise RuntimeError(f'Invalid JSON from {url}')
+
+
+logger = logging.getLogger(__name__)
+
+
+def _truthy(value: Optional[str]) -> bool:
+    if value is None:
+        return False
+    return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def _start_gguf_python(model_file: str) -> Dict[str, object]:
+    """Create an in-process GGUF runner using Python libraries.
+
+    Preference order:
+      1) llama_cpp (pip install llama-cpp-python)
+      2) ctransformers (pip install ctransformers)
+
+    Returns a dict with a callable `runner(prompt, max_tokens, temperature) -> str`.
+    """
+    # Try llama_cpp first
+    ctx = int(os.getenv('LLAMACPP_CTX', '4096'))
+    n_threads = int(os.getenv('LLAMACPP_THREADS', str(os.cpu_count() or 4)))
+    n_batch = int(os.getenv('LLAMACPP_N_BATCH', '512'))
+    gpu_available = which('nvidia-smi') is not None and not _truthy(
+        os.getenv('LLAMACPP_FORCE_CPU')
+    )
+    n_gpu_layers_env = os.getenv('LLAMACPP_N_GPU_LAYERS')
+    main_gpu_env = os.getenv('LLAMACPP_MAIN_GPU')
+    flash_attn_env = os.getenv('LLAMACPP_FLASH_ATTN')
+    seed_env = os.getenv('LLAMACPP_SEED')
+
+    # Try llama_cpp
+    try:
+        from llama_cpp import Llama  # type: ignore
+        llama_kwargs: Dict[str, object] = {
+            'model_path': model_file,
+            'n_ctx': ctx,
+            'n_threads': n_threads,
+            'n_batch': n_batch,
+            'use_mmap': True,
+            'use_mlock': False,
+            'flash_attn': _truthy(flash_attn_env),
+        }
+        if seed_env is not None:
+            try:
+                llama_kwargs['seed'] = int(seed_env)
+            except ValueError:
+                logger.warning('Invalid LLAMACPP_SEED value %s', seed_env)
+        if main_gpu_env is not None:
+            try:
+                llama_kwargs['main_gpu'] = int(main_gpu_env)
+            except ValueError:
+                logger.warning('Invalid LLAMACPP_MAIN_GPU value %s', main_gpu_env)
+        if n_gpu_layers_env is not None:
+            try:
+                llama_kwargs['n_gpu_layers'] = int(n_gpu_layers_env)
+            except ValueError:
+                logger.warning('Invalid LLAMACPP_N_GPU_LAYERS value %s', n_gpu_layers_env)
+        elif gpu_available:
+            llama_kwargs['n_gpu_layers'] = -1
+        else:
+            llama_kwargs['n_gpu_layers'] = 0
+
+        logger.info(
+            'Loading GGUF with llama.cpp (ctx=%s, threads=%s, batch=%s, gpu_layers=%s, main_gpu=%s)',
+            llama_kwargs['n_ctx'],
+            llama_kwargs['n_threads'],
+            llama_kwargs['n_batch'],
+            llama_kwargs.get('n_gpu_layers'),
+            llama_kwargs.get('main_gpu', 0),
+        )
+
+        llm = Llama(**llama_kwargs)
+
+        def _runner(prompt: str, max_tokens: int, temperature: float) -> str:
+            out = llm.create_completion(
+                prompt=prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            try:
+                return ''.join([c.get('text', '') for c in out.get('choices', [])])
+            except Exception:
+                return ''
+
+        return {'kind': 'gguf-python', 'runner': _runner, 'model_path': model_file}
+    except Exception:
+        pass
+
+    # Fallback: ctransformers
+    try:
+        from ctransformers import AutoModelForCausalLM  # type: ignore
+
+        ctransformers_kwargs: Dict[str, object] = {
+            'model_type': "llama",
+            'context_length': ctx,
+        }
+        gpu_layers_env = os.getenv('CTRANSFORMERS_GPU_LAYERS')
+        if gpu_layers_env is not None:
+            try:
+                ctransformers_kwargs['gpu_layers'] = int(gpu_layers_env)
+            except ValueError:
+                logger.warning('Invalid CTRANSFORMERS_GPU_LAYERS value %s', gpu_layers_env)
+        elif gpu_available:
+            ctransformers_kwargs['gpu_layers'] = -1
+
+        logger.info(
+            'Loading GGUF with ctransformers (ctx=%s, gpu_layers=%s)',
+            ctransformers_kwargs['context_length'],
+            ctransformers_kwargs.get('gpu_layers'),
+        )
+
+        llm = AutoModelForCausalLM.from_pretrained(model_file, **ctransformers_kwargs)
+
+        def _runner(prompt: str, max_tokens: int, temperature: float) -> str:
+            # ctransformers exposes a callable model returning a generator/string
+            try:
+                return llm(
+                    prompt,
+                    max_new_tokens=max_tokens,
+                    temperature=temperature,
+                )
+            except Exception:
+                try:
+                    # Some versions expose generate()
+                    return llm.generate(
+                        prompt,
+                        max_new_tokens=max_tokens,
+                        temperature=temperature,
+                    )
+                except Exception:
+                    return ''
+
+        return {'kind': 'gguf-python', 'runner': _runner, 'model_path': model_file}
+    except Exception:
+        pass
+
+    raise HTTPException(
+        status_code=500,
+        detail=(
+            "GGUF backend requires a Python runner. Install one of: "
+            "'pip install llama-cpp-python' or 'pip install ctransformers'"
+        ),
+    )
 
 
 class LoadModelRequest(BaseModel):
@@ -118,19 +348,28 @@ async def load_model(req: LoadModelRequest):
     if model_name in _models:
         raise HTTPException(status_code=400, detail=f"Model '{model_name}' already loaded.")
 
-    # Load base tokenizer and model.
+    # GGUF flow: in-process Python runner (no external llama-server)
+    if _is_gguf_path(req.model_path):
+        model_file = _find_gguf_file(req.model_path)
+        if not model_file:
+            raise HTTPException(status_code=400, detail='No .gguf model found in path')
+        gg = _start_gguf_python(model_file)
+        _gguf[model_name] = gg
+        _models[model_name] = {"backend": "gguf-python"}
+        _loras[model_name] = []
+        return {"status": "loaded", "model_name": model_name, "via": "gguf-python", "loras": []}
+
+    # HF flow: require transformers/peft
+    if not _lazy_import_hf():
+        raise HTTPException(status_code=500, detail="HF backend not available (install 'transformers' and 'peft' or use a .gguf model)")
     try:
         tokenizer = AutoTokenizer.from_pretrained(req.model_path)
         base_model = AutoModelForCausalLM.from_pretrained(req.model_path)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load base model: {e}")
 
-    # Start with the base model; adapters will be attached to this instance.
     peft_model = base_model
     loaded_adapters: List[str] = []
-
-    # If LoRA adapters are provided, load them one by one.  The first adapter
-    # must be loaded via PeftModel.from_pretrained to wrap the base model.
     if req.lora_paths:
         first = True
         for adapter_name, adapter_path in req.lora_paths.items():
@@ -151,17 +390,9 @@ async def load_model(req: LoadModelRequest):
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Failed to load adapter '{adapter_name}': {e}")
 
-    # Register the model and its adapters.
-    _models[model_name] = {
-        "model": peft_model,
-        "tokenizer": tokenizer,
-    }
+    _models[model_name] = {"backend": "hf", "model": peft_model, "tokenizer": tokenizer}
     _loras[model_name] = loaded_adapters
-    return {
-        "status": "loaded",
-        "model_name": model_name,
-        "loras": loaded_adapters,
-    }
+    return {"status": "loaded", "model_name": model_name, "via": "hf", "loras": loaded_adapters}
 
 
 @app.get("/models")
@@ -196,38 +427,53 @@ async def inference(req: InferenceRequest):
     # Validate that the requested model exists.
     if model_name not in _models:
         raise HTTPException(status_code=404, detail=f"Model '{model_name}' not loaded.")
-    # Validate that the requested adapter exists for this model.
-    if lora_name not in _loras.get(model_name, []):
-        raise HTTPException(
-            status_code=404,
-            detail=f"LoRA '{lora_name}' not loaded for model '{model_name}'.",
-        )
+
+    backend = _models.get(model_name, {}).get('backend')
+    if backend == 'gguf-python':
+        gg = _gguf.get(model_name)
+        if not gg:
+            raise HTTPException(status_code=500, detail='gguf backend missing')
+        run = gg.get('runner')
+        if not callable(run):
+            raise HTTPException(status_code=500, detail='gguf runner invalid')
+        try:
+            text = str(run(prompt, int(max_new_tokens or 128), float(temperature or 0.7)) or '')
+            return {"model": model_name, "lora": lora_name, "prompt": prompt, "result": text}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"GGUF inference failed: {e}")
+
+    if backend != 'hf':
+        raise HTTPException(status_code=500, detail='unknown backend')
+    # If adapters were loaded, require a valid adapter; otherwise ignore lora_name
+    if _loras.get(model_name):
+        if lora_name not in _loras.get(model_name, []):
+            raise HTTPException(status_code=404, detail=f"LoRA '{lora_name}' not loaded for model '{model_name}'.")
 
     model = _models[model_name]["model"]
     tokenizer = _models[model_name]["tokenizer"]
-
     try:
-        # Activate the specified adapter.
-        model.set_adapter(lora_name)
-        # Tokenize input.  ``return_tensors='pt'`` produces PyTorch tensors.
+        # Activate the specified adapter when applicable
+        if lora_name:
+            try:
+                model.set_adapter(lora_name)
+            except Exception:
+                pass
         inputs = tokenizer(prompt, return_tensors="pt")
-        # Generate output tokens.
         outputs = model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
             temperature=temperature,
         )
-        # Decode the generated tokens into a string.
         result = tokenizer.decode(outputs[0], skip_special_tokens=True)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Inference failed: {e}")
 
-    return {
-        "model": model_name,
-        "lora": lora_name,
-        "prompt": prompt,
-        "result": result,
-    }
+    return {"model": model_name, "lora": lora_name, "prompt": prompt, "result": result}
+
+
+@app.get('/health')
+async def health():
+    return {"ok": True, "models": list(_models.keys())}
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ export function getTimeoutMs(v) {
   const n = Number(v);
   return Number.isFinite(n) && n > 0
     ? n
-    : Number(process.env.GATEWAY_TIMEOUT_MS || 20000);
+    : Number(process.env.GATEWAY_TIMEOUT_MS || 120000);
 }
 
 export function escapeRe(s) {

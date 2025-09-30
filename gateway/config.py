@@ -17,7 +17,7 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 
 # Timeouts
-GATEWAY_TIMEOUT_MS: int = int(os.getenv("GATEWAY_TIMEOUT_MS", "300000"))
+GATEWAY_TIMEOUT_MS: int = int(os.getenv("GATEWAY_TIMEOUT_MS", "120000"))
 
 # LoRA Python server
 LORA_SERVER_BASE: str = os.getenv("LORA_SERVER_BASE", "http://127.0.0.1:8000")
@@ -42,7 +42,31 @@ DEFAULT_UNSLOTH_BASE: str = os.getenv("DEFAULT_UNSLOTH_BASE", "unsloth/Qwen2.5-7
 DEFAULT_UNSLOTH_4BIT: str = os.getenv(
     "DEFAULT_UNSLOTH_4BIT", "unsloth/Qwen2.5-7B-Instruct-bnb-4bit"
 )
-LORA_MODEL_PATH: str = os.getenv("LORA_MODEL_PATH", DEFAULT_UNSLOTH_BASE)
+LOCAL_HF_REL = os.path.join(
+    "gateway", "models", "base", "gpt-oss-20b-bf16"
+)
+LOCAL_HF_PATH = os.path.abspath(os.path.join(os.getcwd(), LOCAL_HF_REL))
+LOCAL_GGUF_REL = os.path.join(
+    "gateway",
+    "models",
+    "base",
+    "gpt_unlocked",
+    "OpenAI-20B-NEO-Uncensored2-IQ4_NL.gguf",
+)
+LOCAL_GGUF_PATH = os.path.abspath(os.path.join(os.getcwd(), LOCAL_GGUF_REL))
+
+def _default_model_path() -> str:
+    env_path = os.getenv("LORA_MODEL_PATH")
+    if env_path:
+        return env_path
+    if os.path.isdir(LOCAL_HF_PATH):
+        return LOCAL_HF_PATH
+    if os.path.isfile(LOCAL_GGUF_PATH):
+        return LOCAL_GGUF_PATH
+    return DEFAULT_UNSLOTH_BASE
+
+
+LORA_MODEL_PATH: str = _default_model_path()
 LORA_DEFAULT_ADAPTER: str = os.getenv("LORA_DEFAULT_ADAPTER", "")
 LORA_LORA_PATHS_JSON: str = os.getenv("LORA_LORA_PATHS_JSON", "")
 LORA_ADAPTERS_JSON: str = os.getenv("LORA_ADAPTERS_JSON", "")
@@ -65,4 +89,3 @@ def as_dict() -> dict:
         "DEFAULT_UNSLOTH_BASE": DEFAULT_UNSLOTH_BASE,
         "DEFAULT_UNSLOTH_4BIT": DEFAULT_UNSLOTH_4BIT,
     }
-

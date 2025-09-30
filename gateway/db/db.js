@@ -717,6 +717,9 @@ export default {
   listAgentStates,
   insertJob,
   updateJob,
+  insertChatMessage,
+  listChatMessages,
+  clearChatMessages,
   run,
   get,
   all,
@@ -781,4 +784,29 @@ export function updateJob(id, { status, error, meta, finishedAt = null }) {
     `UPDATE jobs SET status = COALESCE(?, status), error = COALESCE(?, error), meta = COALESCE(?, meta), finished_at = COALESCE(?, finished_at) WHERE id = ?`,
     [status ? String(status) : null, error ? String(error) : null, meta ? JSON.stringify(meta) : null, finishedAt || null, id]
   );
+}
+
+// ---------- Chat messages ----------
+
+export function insertChatMessage(userId, workspaceId, role, content, createdAt = null) {
+  run(
+    `INSERT INTO chat_messages (user_id, workspace_id, role, content, created_at)
+     VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))`,
+    [userId, String(workspaceId || 'default'), String(role || ''), String(content || ''), createdAt]
+  );
+}
+
+export function listChatMessages(userId, workspaceId, { limit = 50, offset = 0, asc = true } = {}) {
+  const lim = Math.min(Math.max(1, Number(limit) || 50), 1000);
+  const off = Math.max(0, Number(offset) || 0);
+  const order = asc ? 'ASC' : 'DESC';
+  const rows = all(
+    `SELECT role, content, created_at FROM chat_messages WHERE user_id = ? AND workspace_id = ? ORDER BY datetime(created_at) ${order} LIMIT ? OFFSET ?`,
+    [userId, String(workspaceId || 'default'), lim, off]
+  );
+  return rows.map((r) => ({ role: r.role || 'user', content: r.content || '', createdAt: r.created_at }));
+}
+
+export function clearChatMessages(userId, workspaceId) {
+  run(`DELETE FROM chat_messages WHERE user_id = ? AND workspace_id = ?`, [userId, String(workspaceId || 'default')]);
 }
