@@ -1,0 +1,1 @@
+BRAINMODEL = 'gateway/models/base/gpt_unlocked/OpenAI-20B-NEO-Uncensored2-IQ4_NL.gguf'

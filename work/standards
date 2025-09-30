@@ -1,0 +1,107 @@
+# Standard Development Procedure: Directory Duplication with Dependency Management
+
+## Overview
+This procedure outlines the steps for duplicating a working directory while maintaining dependency efficiency through symbolic linking and preserving the original conda environment.
+
+## Prerequisites
+- Source directory with established development environment
+- Conda installation available
+- Appropriate permissions for creating symbolic links
+- Clear understanding of project structure and dependencies
+
+## Procedure Steps
+
+### Step 1: Environment Analysis
+1.1 **Identify the source directory structure**
+- Recursively list all files and directories
+- Document the complete directory tree
+- Note file permissions and ownership
+
+1.2 **Categorize files and dependencies**
+- **Key files**: Source code, configuration files, documentation, scripts
+- **Dependencies**: External libraries, node_modules, build artifacts, cache directories
+- **Environment files**: Conda environment specifications, requirements files
+
+### Step 2: Conda Environment Detection
+2.1 **Attempt automatic environment detection**
+- Check for `.conda/environment.yml` or `environment.yml`
+- Look for conda meta files in standard locations
+- Examine shell configuration files for conda activation
+
+2.2 **If automatic detection fails, request user clarification**
+- Prompt user to specify the conda environment name
+- Ask for environment file location if available
+- Request conda environment export if needed
+
+### Step 3: Directory Structure Recreation
+3.1 **Create target directory structure**
+- Recreate the complete directory tree
+- Preserve directory permissions and ownership
+- Exclude dependency directories from initial creation
+
+3.2 **Copy key files**
+- Copy source code files (.py, .js, .ts, .md, etc.)
+- Copy configuration files (package.json, pyproject.toml, etc.)
+- Copy documentation and scripts
+- Preserve file permissions and metadata
+
+### Step 4: Dependency Management
+4.1 **Create symbolic links for dependencies**
+- Link node_modules directories
+- Link virtual environments (excluding conda env)
+- Link cache directories
+- Link build artifact directories
+
+4.2 **Verify symbolic link integrity**
+- Ensure all links point to correct source locations
+- Test link accessibility
+- Verify no broken links exist
+
+### Step 5: Environment Configuration
+5.1 **Configure conda environment**
+- Activate the detected/specified conda environment
+- Verify environment contains required packages
+- Test environment functionality
+
+5.2 **Update environment-specific configurations**
+- Modify path references if target location differs
+- Update any hardcoded paths in configuration files
+- Ensure environment variables point to correct locations
+
+### Step 6: Verification and Testing
+6.1 **Structural verification**
+- Compare source and target directory structures
+- Verify all key files are present and identical
+- Confirm symbolic links are functional
+
+6.2 **Environment testing**
+- Test that the conda environment activates correctly
+- Verify all required packages are available
+- Run basic functionality tests
+
+6.3 **Dependency validation**
+- Ensure all symbolic links resolve correctly
+- Verify no missing dependencies
+- Test import statements and module loading
+
+## Error Handling
+- If conda environment cannot be determined, halt process and request clarification
+- If symbolic link creation fails due to permissions, document issue and suggest solutions
+- If key files are missing or corrupted, document discrepancies and request guidance
+
+## Rollback Procedure
+- Remove created target directory
+- Deactivate any activated conda environments
+- Document any issues encountered for future reference
+
+## Documentation Requirements
+- Record source and target directory paths
+- Document detected conda environment details
+- List all created symbolic links
+- Note any modifications made to configurations
+- Record verification results and any issues
+
+## Security Considerations
+- Ensure appropriate permissions on created directories and files
+- Verify symbolic links don't create security vulnerabilities
+- Document any permission changes made during the process

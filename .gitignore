@@ -76,3 +76,9 @@ nohup.out
 /gateway/models/base/qwen3-1.7b-base
 /gateway/models/base/qwen3-4b-base
 gpt-oss-20b-bf16
+gateway/models/base/gpt_unlocked/OpenAI-20B-NEO-Uncensored2-IQ4_NL.gguf
+gateway/models/base/openai-20b-neo-imatrix/OpenAI-20B-NEO-CODE2-Plus-Uncensored-IQ4_NL.gguf
+gateway/models/base/openai-20b-neo-imatrix/.gitattributes
+gateway/models/base/openai-20b-neo-imatrix/OpenAI-20B-NEO-CODEPlus-Uncensored-IQ4_NL.gguf
+gateway/models/base/openai-20b-neo-imatrix/OpenAI-20B-NEO-CODEPlus16-Uncensored-IQ4_NL.gguf
+gateway/models/base/openai-20b-neo-imatrix/OpenAI-20B-NEO-HRR-CODE-TRI-Uncensored-IQ4_NL.gguf
