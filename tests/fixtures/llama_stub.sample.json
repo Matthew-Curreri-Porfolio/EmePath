@@ -1,0 +1,9 @@
+{
+  "models": [{ "id": "stub-model" }, { "id": "tiny" }],
+  "completion_text": "fixture:completion",
+  "chat_content": "fixture chat message",
+  "completion_status": 200,
+  "chat_status": 200,
+  "completion_delay": 0.1,
+  "chat_delay": 0.1
+}

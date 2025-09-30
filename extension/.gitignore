@@ -1,0 +1,55 @@
+# ───────────────── VS Code ─────────────────
+# Ignore everything in .vscode, but keep useful project files.
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+# If you want to share workspace settings too, uncomment:
+# !.vscode/settings.json
+
+# VS Code packaged extensions
+*.vsix
+
+# ───────────────── Editors / IDEs ─────────────────
+.idea/
+.history/
+*.code-workspace
+
+# ───────────────── Node / TypeScript ─────────────────
+**/node_modules/
+**/dist/                 # build output (OK to ignore for extensions)
+*.tsbuildinfo            # tsc incremental build info
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+*.tgz                    # from `npm pack`
+
+# ───────────────── Logs ─────────────────
+logs/
+*.log
+
+# ───────────────── Environment files ─────────────────
+.env
+.env.*
+!.env.example            # keep a template if you have one
+
+# ───────────────── Python ─────────────────
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.venv/
+venv/
+env/
+coverage/
+.coverage
+coverage.xml
+
+# ───────────────── OS junk ─────────────────
+.DS_Store
+Thumbs.db
+
+# ───────────────── Project-specific ─────────────────
+/net-commander

@@ -1,0 +1,66 @@
+{
+  "name": "codexz-extension",
+  "displayName": "Codexz",
+  "description": "Repo-aware local chat and tools via a lightweight gateway.",
+  "version": "0.1.0",
+  "publisher": "your-name",
+  "license": "Apache-2.0",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:codexz.openChat",
+    "*"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Codexz",
+      "properties": {
+        "codexz.gatewayUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:3123",
+          "description": "Gateway base URL."
+        },
+        "codexz.inlineEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable inline completions (can be off if you only want chat)."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "codexz.openChat",
+        "title": "Codexz: Open Chat"
+      },
+      {
+        "command": "codexz.ping",
+        "title": "Codexz: Ping Gateway"
+      },
+      {
+        "command": "codexz.test",
+        "title": "Codexz: Test Completion"
+      },
+      {
+        "command": "codexz.toggleInline",
+        "title": "Codexz: Toggle Inline Completions"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "watch": "tsc -w -p .",
+    "check": "node -e \"require('fs').accessSync('src/extension.ts')\" && echo OK",
+    "package": "vsce package --no-yarn"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.4",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.5.4",
+    "vsce": "^2.15.0"
+  }
+}

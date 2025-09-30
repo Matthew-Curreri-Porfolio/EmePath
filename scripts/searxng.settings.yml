@@ -1,0 +1,28 @@
+server:
+  secret_key: "devsecret"
+  limiter: false
+  public_instance: false
+  image_proxy: false
+
+ui:
+  query_in_title: false
+
+search:
+  safe_search: 1
+  formats: [html, json]
+  default_locale: "en"
+  engine_timeout: 3.0
+
+engines:
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    categories: general
+    disabled: false
+    timeout: 3.0
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: wp
+    categories: general
+    disabled: false
+    timeout: 3.0

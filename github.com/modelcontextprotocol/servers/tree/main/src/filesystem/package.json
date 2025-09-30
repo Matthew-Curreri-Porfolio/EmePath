@@ -1,0 +1,27 @@
+{
+  "name": "filesystem",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "ts-node": "^10.9.1",
+    "@types/node": "^20.6.2"
+  }
+}
+<task_progress>
+- [x] Load MCP documentation
+- [x] Create directory for new MCP server
+- [x] Read existing cline_mcp_settings.json
+- [x] Modify cline_mcp_settings.json with new server configuration
+- [x] Verify server configuration
+- [ ] Test access to MCP server tools
+</task_progress>
+</write_to_file>

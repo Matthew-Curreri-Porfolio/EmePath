@@ -1,0 +1,20 @@
+{
+  "ports": {
+    "gateway": 3123
+  },
+  "searxng": {
+    "base": "http://127.0.0.1:8888"
+  },
+  "prompts": {
+    "includePolicy": true,
+    "includePersonal": true,
+    "personalIndex": 0,
+    "personalRandom": false
+  },
+  "models": {
+    "favorites": ["jaahas/qwen3-abliterated/8b", "library/qwen3/8b"]
+  },
+  "runtime": {
+    "keepLlamaOnExit": true
+  }
+}

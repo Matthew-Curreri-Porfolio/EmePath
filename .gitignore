@@ -1,0 +1,84 @@
+# ───────────────── VS Code ─────────────────
+# Ignore everything in .vscode, but keep useful project files.
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+# If you want to share workspace settings too, uncomment:
+# !.vscode/settings.json
+
+# Ignore backups with .bak extension
+*.bak
+# VS Code packaged extensions
+*.vsix
+
+# ───────────────── Editors / IDEs ─────────────────
+.idea/
+.history/
+*.code-workspace
+
+# ───────────────── Node / TypeScript ─────────────────
+**/node_modules/
+**/dist/                 # build output (OK to ignore for extensions)
+*.tsbuildinfo            # tsc incremental build info
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+*.tgz                    # from `npm pack`
+
+# ───────────────── Logs ─────────────────
+logs/
+*.log
+
+# ───────────────── Environment files ─────────────────
+.env
+.env.*
+!.env.example            # keep a template if you have one
+
+# ───────────────── Python ─────────────────
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.venv/
+venv/
+env/
+coverage/
+.coverage
+coverage.xml
+
+# ───────────────── OS junk ─────────────────
+.DS_Store
+Thumbs.db
+
+# ───────────────── Project-specific ─────────────────
+/net-commander
+gateway/tools/curated/cache/*.jsonl
+gateway/tools/curated/cache/*.json
+*llama.cpp/
+# Keep most scripts ignored by default, but allow committed orchestrators/config
+/scripts/
+!/scripts/start-stack.js
+!/scripts/docker-compose.searxng.yml
+!/scripts/searxng.settings.yml
+!/scripts/resolve-models.js
+!/scripts/preview-prompt.mjs
+!/scripts/status.mjs
+!/scripts/searxng/
+gateway/config/local.json
+/.continue
+/documents/*.txt
+cookie.txt
+nohup.out
+.stack.pids.json
+/gateway/models/base/qwen3-1.7b-base
+/gateway/models/base/qwen3-4b-base
+gpt-oss-20b-bf16
+gateway/models/base/gpt_unlocked/OpenAI-20B-NEO-Uncensored2-IQ4_NL.gguf
+gateway/models/base/openai-20b-neo-imatrix/OpenAI-20B-NEO-CODE2-Plus-Uncensored-IQ4_NL.gguf
+gateway/models/base/openai-20b-neo-imatrix/.gitattributes
+gateway/models/base/openai-20b-neo-imatrix/OpenAI-20B-NEO-CODEPlus-Uncensored-IQ4_NL.gguf
+gateway/models/base/openai-20b-neo-imatrix/OpenAI-20B-NEO-CODEPlus16-Uncensored-IQ4_NL.gguf
+gateway/models/base/openai-20b-neo-imatrix/OpenAI-20B-NEO-HRR-CODE-TRI-Uncensored-IQ4_NL.gguf
