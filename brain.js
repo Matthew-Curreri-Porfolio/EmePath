@@ -124,11 +124,19 @@ export class Brain {
     return agent;
   }
 
-  checkIn(agentId, status = 'running') {
+  checkIn(agentId, status = 'running', meta = {}) {
     const a = this.agents.get(agentId);
     if (!a) return false;
     a.status = status;
     a.lastCheckIn = new Date().toISOString();
+    if (meta && typeof meta === 'object') {
+      if (typeof meta.eotsDelta === 'number') {
+        a.eots = (typeof a.eots === 'number' ? a.eots : 0) + Math.max(0, meta.eotsDelta);
+      }
+      if (typeof meta.note === 'string' && meta.note) {
+        a.lastNote = meta.note;
+      }
+    }
     return true;
   }
 }
