@@ -15,31 +15,47 @@
           <div class="controls"><button class="btn" id="createProject">New</button><button class="btn" id="pause">Pause</button><button class="btn" id="resume">Resume</button></div>
         </div>
         <div id="projects" class="projects"></div>
-        <div class="section"><div class="topTitle">Agents</div><div id="agents" class="agents"></div></div>
         <div class="section">
-          <div class="topTitle">Port Monitor</div>
-          <div id="ports" class="ports"></div>
+          <div class="section-head">
+            <div class="topTitle">Agents</div>
+            <div class="controls mini"><button class="btn sm" id="toggleAgents">Hide</button></div>
+          </div>
+          <div id="agentsWrap" class="coll"><div id="agents" class="agents"></div></div>
+        </div>
+        <div class="section">
+          <div class="section-head">
+            <div class="topTitle">Port Monitor</div>
+            <div class="controls mini"><button class="btn sm" id="togglePorts">Hide</button></div>
+          </div>
+          <div id="portsWrap" class="coll"><div id="ports" class="ports"></div></div>
+        </div>
+        <div class="section">
+          <div class="section-head">
+            <div class="topTitle">Actions Feed</div>
+            <div class="controls mini"><button class="btn sm" id="toggleActions">Hide</button><button class="btn sm" id="clearActions">Clear</button></div>
+          </div>
+          <div id="actionsWrap" class="coll"><div id="actionsFeed" class="feed"></div></div>
         </div>
         <div class="section">
           <div class="section-head">
             <div class="topTitle">Terminal</div>
             <div class="controls mini">
-              <button class="btn sm" id="toggleTerm">Hide</button>
+              <button class="btn sm" id="toggleTerm">Show</button>
               <button class="btn sm" id="clearTerm">Clear</button>
               <button class="btn sm" id="termScrollBottom" style="display:none">Bottom</button>
             </div>
           </div>
-          <div id="termWrap" class="coll"><div id="term" class="logs"></div></div>
+          <div id="termWrap" class="coll" style="display:none"><div id="term" class="logs"></div></div>
         </div>
         <div class="section">
           <div class="section-head">
             <div class="topTitle">Agent/Chat Logs</div>
             <div class="controls mini">
-              <button class="btn sm" id="toggleLogs">Hide</button>
+              <button class="btn sm" id="toggleLogs">Show</button>
               <button class="btn sm" id="clearLogs">Clear</button>
             </div>
           </div>
-          <div id="logsWrap" class="coll"><div id="logs" class="logs"></div></div>
+          <div id="logsWrap" class="coll" style="display:none"><div id="logs" class="logs"></div></div>
         </div>
       </aside>
 
@@ -57,8 +73,15 @@
           <div class="controls"><a class="btn" href="#" id="exportChat">Export</a><button class="btn" id="clearPins">Clear Pins</button><button class="btn" id="clearChat">Clear Chat</button></div>
         </div>
         <div class="pins" id="pins"></div>
+        <div id="chatContext" class="context"></div>
         <div class="chat" id="chat"></div>
-        <div class="input"><textarea id="ta" placeholder="Type a message…"></textarea><button class="btn send" id="send">Send</button></div>
+        <div class="input">
+          <textarea id="ta" placeholder="Type a message…"></textarea>
+          <label style="display:flex;align-items:center;gap:6px;user-select:none;font-size:12px;color:var(--text-muted)">
+            <input type="checkbox" id="ctlMode" checked /> LLM Control
+          </label>
+          <button class="btn send" id="send">Send</button>
+        </div>
       </aside>
     </div>
 

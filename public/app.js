@@ -12,6 +12,21 @@ function isNearBottom(el, threshold = 40) {
   return el ? el.scrollHeight - el.scrollTop - el.clientHeight < threshold : true;
 }
 
+// Actions feed helpers
+const actionsFeedItems = [];
+function addActionFeedback(label, text) {
+  const el = document.getElementById('actionsFeed');
+  if (!el) return;
+  const ts = new Date().toLocaleTimeString();
+  const d = document.createElement('div');
+  d.className = 'item';
+  const body = String(text || '').trim();
+  d.innerHTML = `<details><summary>${label} — ${ts}</summary><pre>${body}</pre></details>`;
+  el.prepend(d);
+  actionsFeedItems.unshift({ ts, label, text: body });
+  while (actionsFeedItems.length > 50 && el.lastChild) { el.removeChild(el.lastChild); actionsFeedItems.pop(); }
+}
+
 // Projects
 async function loadProjects() { const r = await fetch('/projects'); const j = await r.json(); const el = document.getElementById('projects'); el.innerHTML = ''; const projects = (j.projects || []); if (!currentProject || !projects.some(p => p.projectId === currentProject)) { currentProject = (projects[0] && projects[0].projectId) || ''; } projects.forEach(p => { const actionDir = (p.config && p.config.actionDir) || '.'; const status = p.status || {}; const counts = status.counts || {}; const queue = status.queue || {}; const stateLabel = p.active === false ? 'inactive' : (queue.paused ? 'paused' : 'active'); const d = document.createElement('div'); d.className = 'pCard' + (p.projectId === currentProject ? ' active' : ''); d.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between"><div><div style="font-weight:700">${p.projectId}</div><div style="margin-top:4px"><span class="stat" title="Click to edit actionDir" style="cursor:pointer" onclick="event.stopPropagation(); editActionDir(this,'${p.projectId}')"><u>actionDir:</u> ${actionDir}</span><span class="stat">pending ${counts.pending||0}</span><span class="stat">running ${counts.running||0}</span><span class="stat">done ${counts.done||0}</span></div></div><div style="display:flex;gap:4px"><button class="btn sm delBtn" data-id="${p.projectId}">×</button><div class="status">${statusPill(stateLabel)}</div></div></div>`; d.onclick = (e) => { if (!e.target.classList.contains('delBtn')) { currentProject = p.projectId; loadAll(); } }; el.appendChild(d); }); el.querySelectorAll('.delBtn').forEach(btn => { btn.onclick = async (e) => { e.stopPropagation(); const projectId = btn.getAttribute('data-id'); if (!confirm('Delete project "' + projectId + '"? This will remove all agents and data for this project.')) return; try { await fetch('/projects/' + projectId, { method: 'DELETE' }); await loadProjects(); } catch (err) { console.error(err); } } }); document.getElementById('projTitle').textContent = 'Flow — ' + (currentProject || ''); }
 
@@ -42,10 +57,10 @@ async function loadChat() {
       const pin = document.createElement('button');
       pin.className = 'btn sm';
       pin.textContent = '📌 Pin';
+      pin.title = 'Pin this message (no agent spawn)';
       pin.onclick = async () => {
-        const kind = prompt('Kind (custom/distill/scan/query)?', 'custom') || 'custom';
         try {
-          await fetch('/pin?project=' + encodeURIComponent(currentProject), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: m.content, kind, spawn: true }) });
+          await fetch('/pin?project=' + encodeURIComponent(currentProject), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: m.content }) });
           await loadPlan();
           await loadAgents();
           await loadPins();
@@ -141,11 +156,29 @@ async function sendMessage() {
   if (!text) return;
   ta.value = '';
   try {
+    // Always log chat for history
     await fetch('/chat?project=' + encodeURIComponent(currentProject), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
+
+    // Optionally route to controller if LLM Control is enabled
+    const ctl = document.getElementById('ctlMode');
+    const useController = !!(ctl && ctl.checked);
+    if (useController) {
+      const r = await fetch('/control?project=' + encodeURIComponent(currentProject), {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text, options: { loop: true, maxTurns: 3 } })
+      });
+      // Capture feedback
+      let payload = null; let raw = '';
+      try { payload = await r.json(); } catch { try { raw = await r.text(); } catch {} }
+      const out = (payload && (payload.text || payload.raw)) || raw || '';
+      if (out) addActionFeedback('Controller (chat)', out);
+    }
+
     await loadProjects();
     await loadChat();
     await loadPins();
     await loadPlan();
+    await loadAgents();
   } catch (e) { console.error(e); }
 }
 
@@ -163,16 +196,8 @@ async function loadAgents() {
     d.className = 'aRow';
     d.innerHTML = '<div>' + statusPill(a.status) + '</div>' +
       '<div style="flex:1"><div style="font-weight:600">' + trim(a.goal || '', 72) + '</div><div style="color:var(--muted);font-size:12px">' + a.id + ' · EOT ' + (a.eots || 0) + '</div></div>' +
-      '<div class="agent-actions"><button class="btn runBtn sm" data-id="' + a.id + '">Run</button><button class="btn removeBtn sm" data-id="' + a.id + '">Remove</button></div>';
+      '<div class="agent-actions"><button class="btn removeBtn sm" data-id="' + a.id + '">Remove</button></div>';
     el.appendChild(d);
-  });
-  el.querySelectorAll('.runBtn').forEach(btn => {
-    btn.onclick = async () => {
-      const id = btn.getAttribute('data-id');
-      const kind = prompt('Kind to run (distill/scan/query)?', 'distill') || 'custom';
-      await fetch('/agent/' + encodeURIComponent(id) + '/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind }) });
-      loadAgents();
-    };
   });
   el.querySelectorAll('.removeBtn').forEach(btn => {
     btn.onclick = async () => {
@@ -251,7 +276,15 @@ async function loadTerm() {
 }
 
 // Plan & Memory
-async function loadPlan() { try { const r = await fetch('/plan?project=' + encodeURIComponent(currentProject)); const j = await r.json(); currentPlan = j.plan || null; drawGraph(lastAgents || []); } catch (e) { } }
+async function loadPlan() { try { const r = await fetch('/plan?project=' + encodeURIComponent(currentProject)); const j = await r.json(); currentPlan = j.plan || null; drawGraph(lastAgents || []); updateChatContext(currentPlan); } catch (e) { } }
+function updateChatContext(plan) {
+  const el = document.getElementById('chatContext'); if (!el) return;
+  if (!plan) { el.textContent = ''; return; }
+  const intent = String(plan.intent || '').trim();
+  const goals = Array.isArray(plan.goals) ? plan.goals.length : 0;
+  const steps = Array.isArray(plan.plan) ? plan.plan.length : 0;
+  el.textContent = `Intent: ${intent || '—'} • Goals: ${goals} • Steps: ${steps}`;
+}
 async function loadMemory() {
   try {
     const r = await fetch('/memory?project=' + encodeURIComponent(currentProject)); const j = await r.json(); const el = document.getElementById('memBody'); const fmt = (x) => x && x.updatedAt ? new Date(x.updatedAt).toLocaleString() : '—'; el.innerHTML = ''
@@ -282,10 +315,84 @@ const palList = document.getElementById('palList');
 let PRESETS = [];
 async function loadConfig() {
   try {
+    if (!currentProject) return;
     const r = await fetch('/projects/' + encodeURIComponent(currentProject) + '/config');
     const j = await r.json();
     const actionDir = j.config?.actionDir || '.';
+    // Sync LLM Control checkbox with server config (default true)
+    const ctl = document.getElementById('ctlMode');
+    if (ctl) {
+      const v = (j.config && typeof j.config.llmControl === 'boolean') ? !!j.config.llmControl : true;
+      ctl.checked = v;
+      if (!ctl.dataset.bound) {
+        ctl.dataset.bound = '1';
+        ctl.addEventListener('change', async () => {
+          try {
+            await fetch('/projects/' + encodeURIComponent(currentProject) + '/config', {
+              method: 'PUT', headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ llmControl: !!ctl.checked })
+            });
+          } catch (e) { console.error(e); }
+        });
+      }
+    }
     PRESETS = [
+      // LLM-driven agent creation and orchestration
+      { label: 'LLM: Design & spawn agents', run: async () => {
+          const task = prompt('Describe the task for agents:');
+          if (!task) return;
+          try {
+            const r = await fetch('/process?autorun=true&project=' + encodeURIComponent(currentProject), {
+              method: 'POST', headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ text: task, options: { autorun: true } })
+            });
+            let j = null; try { j = await r.json(); } catch {}
+            if (j && (j.text || j.plan)) addActionFeedback('Process (autorun)', j.text || JSON.stringify(j.plan));
+            await loadAgents();
+            await loadPlan();
+          } catch (e) { console.error(e); }
+        }
+      },
+      { label: 'LLM: Continue plan', run: async () => {
+          try {
+            const r = await fetch('/control?project=' + encodeURIComponent(currentProject), {
+              method: 'POST', headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ text: 'continue plan', options: { loop: true, maxTurns: 2 } })
+            });
+            let j = null; try { j = await r.json(); } catch {}
+            if (j && (j.text || j.raw)) addActionFeedback('Continue plan', j.text || j.raw);
+            await loadAgents();
+            await loadPlan();
+          } catch (e) { console.error(e); }
+        }
+      },
+      { label: 'LLM: Controller (multi-turn)', run: async () => {
+          const task = prompt('Controller task (LLM chooses tools/actions):');
+          if (!task) return;
+          try {
+            const r = await fetch('/control?project=' + encodeURIComponent(currentProject), {
+              method: 'POST', headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ text: task, options: { loop: true, maxTurns: 3 } })
+            });
+            let j = null; try { j = await r.json(); } catch {}
+            if (j && (j.text || j.raw)) addActionFeedback('Controller', j.text || j.raw);
+            await loadAgents();
+            await loadPlan();
+          } catch (e) { console.error(e); }
+        }
+      },
+      { label: 'LLM: Toggle auto memory', run: async () => {
+          try {
+            const r = await fetch('/auto/state');
+            const j = await r.json();
+            const next = !(j && j.enabled);
+            await fetch('/auto/toggle', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: next }) });
+            alert('Auto memory updater ' + (next ? 'enabled' : 'disabled'));
+          } catch (e) { console.error(e); }
+        }
+      },
+
+      // Existing quick actions
       { label: `Plan: Distill ${actionDir}/documents (autorun)`, run: () => fetch('/process?autorun=true&project=' + encodeURIComponent(currentProject), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: `Distill ${actionDir}/documents`, options: { autorun: true } }) }).then(loadAll) },
       { label: 'Scan current repo', run: () => fetch('/control?project=' + encodeURIComponent(currentProject), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'Scan repository', actions: [{ tool: 'execute', args: { kind: 'scan', input: JSON.stringify({ root: "." }) } }] }) }).then(loadAll) },
       { label: 'Query: "security policy"', run: () => fetch('/control?project=' + encodeURIComponent(currentProject), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'Query security policy', actions: [{ tool: 'execute', args: { kind: 'query', input: JSON.stringify({ q: 'security policy', k: 8 }) } }] }) }).then(loadAll) },
@@ -309,6 +416,10 @@ document.getElementById('sendInterrupt').addEventListener('click', async () => {
 // Logs collapse + terminal
 document.getElementById('toggleLogs').addEventListener('click', () => { const w = document.getElementById('logsWrap'); const b = document.getElementById('toggleLogs'); const vis = w.style.display !== 'none'; w.style.display = vis ? 'none' : 'block'; b.textContent = vis ? 'Show' : 'Hide'; });
 document.getElementById('toggleTerm').addEventListener('click', () => { const w = document.getElementById('termWrap'); const b = document.getElementById('toggleTerm'); const vis = w.style.display !== 'none'; w.style.display = vis ? 'none' : 'block'; b.textContent = vis ? 'Show' : 'Hide'; if (!vis) { termAutoScroll = true; requestAnimationFrame(() => { const el = document.getElementById('term'); if (el) { el.scrollTop = el.scrollHeight; } }); } });
+document.getElementById('toggleAgents').addEventListener('click', () => { const w = document.getElementById('agentsWrap'); const b = document.getElementById('toggleAgents'); const vis = w.style.display !== 'none'; w.style.display = vis ? 'none' : 'block'; b.textContent = vis ? 'Show' : 'Hide'; });
+document.getElementById('togglePorts').addEventListener('click', () => { const w = document.getElementById('portsWrap'); const b = document.getElementById('togglePorts'); const vis = w.style.display !== 'none'; w.style.display = vis ? 'none' : 'block'; b.textContent = vis ? 'Show' : 'Hide'; });
+document.getElementById('toggleActions').addEventListener('click', () => { const w = document.getElementById('actionsWrap'); const b = document.getElementById('toggleActions'); const vis = w.style.display !== 'none'; w.style.display = vis ? 'none' : 'block'; b.textContent = vis ? 'Show' : 'Hide'; });
+document.getElementById('clearActions').addEventListener('click', () => { const el = document.getElementById('actionsFeed'); if (el) el.innerHTML = ''; actionsFeedItems.length = 0; });
 
 // Plan drawer
 document.getElementById('openPlan').addEventListener('click', () => togglePlan(true));
@@ -395,7 +506,7 @@ async function loadPorts() {
         <div>User</div>
         <div>Command</div>
         <div>PID</div>
-        <div>Action</div>
+        <div>Actions</div>
       `;
       el.appendChild(header);
       container = document.createElement('div');
@@ -469,8 +580,9 @@ async function loadPorts() {
 }
 
 async function loadAll() {
+  // Ensure a valid currentProject before loading config and actions
+  await loadProjects();
   await loadConfig();
-  loadProjects();
   loadAgents();
   loadLogs();
   loadTerm();

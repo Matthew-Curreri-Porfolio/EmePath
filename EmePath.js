@@ -1209,7 +1209,13 @@ async function startServer(brain, { projectId, userId, argv }) {
       const projectId = String(req.params.id || '').trim();
       if (!projectId) return res.status(400).json({ ok: false, error: 'projectId required' });
       const cfg = getProjectConfig(projectId);
-      const config = { ...(cfg.memory || {}), actionDir: cfg.actionDir };
+      const prev = cfg.memory || {};
+      const llmControl = typeof prev.llmControl === 'boolean' ? prev.llmControl : true; // default on first read
+      const config = { ...prev, actionDir: cfg.actionDir, llmControl };
+      // persist default if it wasn't present
+      if (typeof prev.llmControl !== 'boolean') {
+        try { db.upsertMemory(userId, projectId, 'short', 'config', JSON.stringify(config), 'set'); } catch {}
+      }
       res.json({ ok: true, config, project: cfg.record || null });
     } catch (e) {
       res.status(500).json({ ok: false, error: toStr(e?.message || e) });
@@ -1220,8 +1226,10 @@ async function startServer(brain, { projectId, userId, argv }) {
       const projectId = String(req.params.id || '').trim();
       if (!projectId) return res.status(400).json({ ok: false, error: 'projectId required' });
       const body = req.body || {};
-      const actionDir = sanitizeActionDir(body.actionDir || '.');
-      const config = { ...(projectConfigFromMemory(projectId)), actionDir };
+      const prev = projectConfigFromMemory(projectId);
+      const actionDir = typeof body.actionDir === 'string' ? sanitizeActionDir(body.actionDir) : sanitizeActionDir(prev.actionDir || '.');
+      const llmControl = typeof body.llmControl === 'boolean' ? body.llmControl : (typeof prev.llmControl === 'boolean' ? prev.llmControl : true);
+      const config = { ...prev, actionDir, llmControl };
       db.upsertMemory(userId, projectId, 'short', 'config', JSON.stringify(config), 'set');
       const record = ensureProjectRecord(projectId, { actionDir });
       res.json({ ok: true, config, project: record || null });
@@ -1408,6 +1416,27 @@ async function startServer(brain, { projectId, userId, argv }) {
       req.on('close', () => clearInterval(timer));
     } catch (e) {
       res.status(500).end();
+    }
+  });
+
+  // Auto memory updater state
+  app.get('/auto/state', (_req, res) => {
+    try {
+      res.json({ ok: true, enabled: AUTO.enabled, intervalMs: AUTO.intervalMs, projects: Array.from(AUTO.projects.keys()) });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
+    }
+  });
+  app.post('/auto/toggle', (req, res) => {
+    try {
+      const enabledRaw = req.body?.enabled ?? req.query?.enabled;
+      const enabled = typeof enabledRaw === 'boolean' ? enabledRaw : String(enabledRaw || '').toLowerCase() === 'true';
+      AUTO.enabled = enabled;
+      if (AUTO.timer) { clearInterval(AUTO.timer); AUTO.timer = null; }
+      if (AUTO.enabled) startAutoMemory({ intervalMs: AUTO.intervalMs });
+      res.json({ ok: true, enabled: AUTO.enabled });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
     }
   });
 
@@ -1608,6 +1637,9 @@ async function startServer(brain, { projectId, userId, argv }) {
 
   // Hydrate chat history (last 50) on boot for default project
   try { hydrateChatHistory(projectId); } catch {}
+
+  // Start auto memory updater (env-aware, per-project)
+  try { startAutoMemory({ intervalMs: Number(process.env.EMEPATH_AUTO_INTERVAL || '30000') || 30000 }); } catch {}
 }
 
 async function pickPort(server, { portStart, portEnd, explicitPort }) {
@@ -3246,6 +3278,131 @@ async function runControlLoop(brain, { textRaw, env = {}, options = {}, baseUrl,
 }
 // In-memory index for scan/query tools
 const SCAN_INDEX = { root: '', files: [] }; // files: { path, text }
+
+// -------------------- Auto memory updater (env scanning) --------------------
+
+const AUTO = { enabled: (process.env.EMEPATH_AUTO || '1') === '1', timer: null, intervalMs: 30000, projects: new Map() };
+
+function shouldIgnoreDir(name) {
+  return /^(node_modules|\.git|dist|build|out|\.next|target|logs|coverage|\.cache)$/i.test(String(name));
+}
+
+async function dirSnapshot(root, { maxFiles = 4000 } = {}) {
+  const abs = path.resolve(process.cwd(), root || '.');
+  if (!isDir(abs)) return { root: abs, files: new Map(), count: 0, mtimeMax: 0, hash: '0' };
+  let count = 0;
+  let mtimeMax = 0;
+  const files = new Map();
+  async function walk(dir) {
+    let items = [];
+    try { items = await fsp.readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const it of items) {
+      if (it.isDirectory()) {
+        if (shouldIgnoreDir(it.name)) continue;
+        await walk(path.join(dir, it.name));
+        if (count >= maxFiles) return;
+      } else {
+        const p = path.join(dir, it.name);
+        let st;
+        try { st = fs.statSync(p); } catch { continue; }
+        const rel = path.relative(abs, p);
+        files.set(rel, Number(st.mtimeMs || 0));
+        count++;
+        if (st.mtimeMs > mtimeMax) mtimeMax = Number(st.mtimeMs);
+        if (count >= maxFiles) return;
+      }
+    }
+  }
+  await walk(abs);
+  // Simple fingerprint: count|maxMtime|root
+  const hash = `${count}|${mtimeMax}|${abs}`;
+  return { root: abs, files, count, mtimeMax, hash };
+}
+
+function diffSnapshots(prev, curr, { limit = 12 } = {}) {
+  const added = [];
+  const removed = [];
+  const modified = [];
+  const p = prev?.files || new Map();
+  const c = curr?.files || new Map();
+  const all = new Set([...p.keys(), ...c.keys()]);
+  for (const k of all) {
+    const a = p.get(k);
+    const b = c.get(k);
+    if (a == null && b != null) added.push(k);
+    else if (a != null && b == null) removed.push(k);
+    else if (a != null && b != null && a !== b) modified.push(k);
+    if (added.length >= limit && removed.length >= limit && modified.length >= limit) break;
+  }
+  return { added, removed, modified };
+}
+
+function summarizeDiff(diff, root, { limit = 5 } = {}) {
+  const take = (arr) => arr.slice(0, limit).map((x) => `- ${x}`).join('\n') + (arr.length > limit ? `\n… +${arr.length - limit} more` : '');
+  const parts = [];
+  if (diff.added.length) parts.push(`Added (${diff.added.length}):\n${take(diff.added)}`);
+  if (diff.removed.length) parts.push(`Removed (${diff.removed.length}):\n${take(diff.removed)}`);
+  if (diff.modified.length) parts.push(`Modified (${diff.modified.length}):\n${take(diff.modified)}`);
+  const body = parts.length ? parts.join('\n\n') : 'No notable changes';
+  return `Environment update detected under ${root}\n${body}`;
+}
+
+function startAutoMemory({ intervalMs = 30000 } = {}) {
+  AUTO.intervalMs = intervalMs;
+  if (!AUTO.enabled) return;
+  if (AUTO.timer) clearInterval(AUTO.timer);
+  AUTO.timer = setInterval(tickAutoMemory, AUTO.intervalMs);
+
+  // Expose state endpoints
+  try {
+    const app = CURRENT_SERVER && CURRENT_SERVER._events && CURRENT_SERVER._events.request && CURRENT_SERVER._events.request; // noop
+  } catch {}
+}
+
+async function tickAutoMemory() {
+  try {
+    const list = await listProjectsStatus();
+    for (const p of Array.isArray(list) ? list : []) {
+      const pid = String(p.projectId || '').trim();
+      const actionDir = (p.config && p.config.actionDir) || '.';
+      if (!pid) continue;
+      await autoForProject(pid, actionDir);
+    }
+  } catch {}
+}
+
+async function autoForProject(projectId, actionDir) {
+  try {
+    const rec = AUTO.projects.get(projectId) || { last: null, busy: false, lastRunAt: 0 };
+    if (rec.busy) return;
+    const now = Date.now();
+    if (now - rec.lastRunAt < AUTO.intervalMs - 1000) return; // throttle
+    rec.busy = true;
+    AUTO.projects.set(projectId, rec);
+    const snap = await dirSnapshot(actionDir);
+    if (rec.last && rec.last.hash === snap.hash) { rec.busy = false; return; }
+    const diff = diffSnapshots(rec.last, snap);
+    // Compose assistant update in chat
+    const msg = summarizeDiff(diff, snap.root);
+    appendChat(projectId, 'assistant', msg);
+    // Ask controller to update memory/index as needed
+    const baseUrl = `http://127.0.0.1:${CURRENT_PORT || 0}`;
+    try {
+      await runControlOnce(LAST_BRAIN, {
+        textRaw: 'Environment changed. Update memory and index as needed. ' + msg,
+        env: { projectId },
+        options: { loop: false },
+        baseUrl,
+      });
+    } catch {}
+    rec.last = snap;
+    rec.lastRunAt = now;
+    rec.busy = false;
+    AUTO.projects.set(projectId, rec);
+  } catch {
+    // ignore
+  }
+}
 
 function escapeRe(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
