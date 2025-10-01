@@ -78,6 +78,24 @@ export function buildPrompts() {
     policy,
     personal,
     plan,
+    repair: {
+      controller: {
+        system:
+          '{{affirmation}} You are a JSON schema repair assistant. Given an ORIGINAL JSON object and a list of MISSING or INCORRECT elements, output a SINGLE corrected JSON object that strictly conforms to the Controller schema.\n' +
+          'Do not rephrase existing valid fields; only add or minimally adjust what is missing.\n' +
+          'If the user intent indicates repository scanning, ensure actions include: { "tool": "execute", "args": { "kind": "scan", "input": { "root": "{{actionDir}}" } } }.\n' +
+          'Return exactly one JSON object. No prose, no code fences.\n' +
+          '{{contract}}',
+      },
+      planner: {
+        system:
+          '{{affirmation}} You are a JSON schema repair assistant. Given an ORIGINAL JSON object and a list of MISSING or INCORRECT elements, output a SINGLE corrected JSON object that strictly conforms to the Planner schema.\n' +
+          'Preserve valid parts (intent, goals, plan, agents) and only add the missing elements.\n' +
+          'If the intent indicates scanning a repository, ensure the plan includes either a scan agent (kind="scan") or an execute action with input.root="{{actionDir}}".\n' +
+          'Return exactly one JSON object. No prose, no code fences.\n' +
+          '{{contract}}',
+      },
+    },
     training: {
       distill: {
         // System directive for converting raw text into instruction-tuning JSONL
@@ -152,6 +170,7 @@ export function buildPrompts() {
           '- Use available capabilities: {{capabilities}}.\n' +
           '- If modelConfigured=false, include actions: survey_env, replicate_workspace, suggest_fixes, and suggest_features in addition to bootstrap_lora when appropriate.\n' +
           "- Include a checklist that ensures reading './work/standards' and running project tests when appropriate.\n" +
+          '- If the intent includes scanning a repository, add a scan agent or an execute action that uses the configured actionDir as root ({{actionDir}}).\n' +
           '{{contract}}',
       },
       controller: {
@@ -175,7 +194,9 @@ export function buildPrompts() {
           '- Use updates sparingly but helpfully to keep the user informed.\n' +
           '- List all blocking requirements (severity="hard"). If the user cannot provide them, include alternatives.\n' +
           '- Prefer planning agents only when requirements are satisfied or can be deferred safely.\n' +
-          '- Do not include any markdown or commentary outside the JSON object.\n' +
+          '- If the user intent indicates repository scanning (e.g., contains "scan" or "scan repository"), include an action to execute scanning with the configured actionDir as root: ' +
+          '  "actions": [ { "tool": "execute", "args": { "kind": "scan", "input": { "root": "{{actionDir}}" } } } ]\n' +
+          '- Do not include any markdown or code fences. Return exactly one JSON object once, no duplicates.\n' +
           '{{contract}}',
       },
       interrupt: {

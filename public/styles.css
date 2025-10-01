@@ -147,6 +147,46 @@ body {
     overflow: hidden;
 }
 
+.center-tabs {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+.tabbar {
+    display: flex;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-lg);
+    border-bottom: 1px solid var(--border-color);
+}
+.tabbar .tab {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+}
+.tabbar .tab.active {
+    background: var(--bg-card);
+    color: var(--text-primary);
+}
+.tabpanes {
+    flex: 1;
+    display: flex;
+}
+.pane {
+    display: none;
+    flex: 1;
+    overflow: auto;
+    padding: var(--space-lg);
+}
+.pane.show { display: block; }
+
+.mem-text {
+    white-space: pre-wrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 12px;
+}
+
 /* ========================================
    CARDS & CONTAINERS
 ======================================= */
@@ -341,7 +381,7 @@ body {
     border: 1px solid var(--border-color);
     background: var(--bg-card);
     color: var(--text-primary);
-    padding: var(--space_xs) var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
     border-radius: var(--radius-md);
     cursor: pointer;
     font-family: inherit;
@@ -457,6 +497,9 @@ textarea {
     border-radius: var(--radius-md);
     padding: var(--space-sm);
 }
+.feed .item[data-type="controller"] summary { color: #6ad4ff; }
+.feed .item[data-type="process"] summary { color: #a78bfa; }
+.feed .item[data-type="auto"] summary { color: #22c55e; }
 .feed .item summary {
     cursor: pointer;
     font-weight: 600;
@@ -468,6 +511,42 @@ textarea {
     font-size: 12px;
     margin: var(--space-xs) 0 0 0;
 }
+
+/* File memory list */
+.filemem {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+#pane-structure .filemem {
+    max-height: 60vh;
+    overflow-y: auto;
+}
+#pane-files .filemem {
+    max-height: 60vh;
+    overflow-y: auto;
+}
+.filemem .dir {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--space-sm) var(--space-md);
+    /* overflow: scroll; */
+}
+.filemem .dir .title {
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: var(--space-xs);
+}
+.filemem .item {
+    border-top: 1px dashed var(--border-color);
+    padding: var(--space-xs) 0;
+}
+.filemem .item:first-child { border-top: 0; }
+.filemem .path { font-weight: 600; color: var(--text-primary); }
+.filemem .meta { color: var(--text-muted); font-size: 12px; }
+.filemem .sum { margin-top: 2px; font-size: 13px; color: var(--text-secondary); }
+.filemem .io { margin-top: 2px; font-size: 12px; color: var(--text-muted); }
 
 /* ========================================
    INPUT AREAS

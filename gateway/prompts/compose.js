@@ -35,6 +35,8 @@ const ROLE_MAP = {
   'emepath.planner.system': 'planner',
   'emepath.controller.system': 'planner',
   'emepath.interrupt.system': 'planner',
+  'emepath.repair.controller': 'planner',
+  'emepath.repair.planner': 'planner',
   'emepath.chat.summarize_system': 'planner',
   'training.question_synth': 'curriculum_designer',
   'training.grader': 'grader',

@@ -32,7 +32,13 @@
         <div class="section">
           <div class="section-head">
             <div class="topTitle">Actions Feed</div>
-            <div class="controls mini"><button class="btn sm" id="toggleActions">Hide</button><button class="btn sm" id="clearActions">Clear</button></div>
+            <div class="controls mini">
+              <label style="display:flex;align-items:center;gap:4px;font-size:12px"><input type="checkbox" id="fltController" checked>Controller</label>
+              <label style="display:flex;align-items:center;gap:4px;font-size:12px"><input type="checkbox" id="fltProcess" checked>Process</label>
+              <label style="display:flex;align-items:center;gap:4px;font-size:12px"><input type="checkbox" id="fltAuto" checked>Auto</label>
+              <button class="btn sm" id="toggleActions">Hide</button>
+              <button class="btn sm" id="clearActions">Clear</button>
+            </div>
           </div>
           <div id="actionsWrap" class="coll"><div id="actionsFeed" class="feed"></div></div>
         </div>
@@ -64,7 +70,22 @@
           <div class="topTitle" id="projTitle">Flow <span id="watchbar" class="pill paused" style="display:none"></span></div>
           <div class="controls"><button class="btn" id="openInterrupt">Interrupt</button><button class="btn" id="openPalette">Actions ⌘K</button><button class="btn" id="openPlan">Plan</button><button class="btn" id="openMemory">Memory</button></div>
         </div>
-        <svg id="graph"></svg>
+        <div class="center-tabs">
+          <div class="tabbar">
+            <button class="tab active" data-tab="flow">Flow</button>
+            <button class="tab" data-tab="short">Short</button>
+            <button class="tab" data-tab="long">Long</button>
+            <button class="tab" data-tab="structure">Structure</button>
+            <button class="tab" data-tab="files">Files</button>
+          </div>
+          <div class="tabpanes">
+            <div id="pane-flow" class="pane show"><svg id="graph"></svg></div>
+            <div id="pane-short" class="pane"></div>
+            <div id="pane-long" class="pane"></div>
+            <div id="pane-structure" class="pane"></div>
+            <div id="pane-files" class="pane"></div>
+          </div>
+        </div>
       </section>
 
       <aside class="dock">

@@ -20,12 +20,34 @@ function addActionFeedback(label, text) {
   const ts = new Date().toLocaleTimeString();
   const d = document.createElement('div');
   d.className = 'item';
+  const type = /controller/i.test(label) ? 'controller' : (/process/i.test(label) ? 'process' : (/auto|memory/i.test(label) ? 'auto' : ''));
+  if (type) d.dataset.type = type;
   const body = String(text || '').trim();
   d.innerHTML = `<details><summary>${label} — ${ts}</summary><pre>${body}</pre></details>`;
-  el.prepend(d);
-  actionsFeedItems.unshift({ ts, label, text: body });
+  if (shouldShowFeedItem(type)) el.prepend(d);
+  actionsFeedItems.unshift({ ts, label, text: body, type });
   while (actionsFeedItems.length > 50 && el.lastChild) { el.removeChild(el.lastChild); actionsFeedItems.pop(); }
 }
+
+function shouldShowFeedItem(type) {
+  const fc = document.getElementById('fltController');
+  const fp = document.getElementById('fltProcess');
+  const fa = document.getElementById('fltAuto');
+  if (!type) return true;
+  if (type === 'controller') return !fc || fc.checked;
+  if (type === 'process') return !fp || fp.checked;
+  if (type === 'auto') return !fa || fa.checked;
+  return true;
+}
+
+['fltController','fltProcess','fltAuto'].forEach(id=>{ const el=document.getElementById(id); if(el && !el.dataset.bound){ el.dataset.bound='1'; el.addEventListener('change', ()=>{ const feed=document.getElementById('actionsFeed'); if(!feed) return; feed.innerHTML=''; for(const it of actionsFeedItems){ if(shouldShowFeedItem(it.type)){ const node=document.createElement('div'); node.className='item'; if(it.type) node.dataset.type=it.type; node.innerHTML=`<details><summary>${it.label} — ${it.ts}</summary><pre>${it.text}</pre></details>`; feed.appendChild(node); } } }); }});
+// Persist feed filters
+try{
+  const bind=(id,key)=>{ const el=document.getElementById(id); if(!el) return; const v=localStorage.getItem(key); if(v==='0') el.checked=false; if(v==='1') el.checked=true; el.addEventListener('change',()=>{ try{ localStorage.setItem(key, el.checked?'1':'0'); }catch{}; const feed=document.getElementById('actionsFeed'); if(!feed) return; feed.innerHTML=''; for(const it of actionsFeedItems){ if(shouldShowFeedItem(it.type)){ const node=document.createElement('div'); node.className='item'; if(it.type) node.dataset.type=it.type; node.innerHTML=`<details><summary>${it.label} — ${it.ts}</summary><pre>${it.text}</pre></details>`; feed.appendChild(node); } } }); };
+  bind('fltController','feed:controller');
+  bind('fltProcess','feed:process');
+  bind('fltAuto','feed:auto');
+}catch{}
 
 // Projects
 async function loadProjects() { const r = await fetch('/projects'); const j = await r.json(); const el = document.getElementById('projects'); el.innerHTML = ''; const projects = (j.projects || []); if (!currentProject || !projects.some(p => p.projectId === currentProject)) { currentProject = (projects[0] && projects[0].projectId) || ''; } projects.forEach(p => { const actionDir = (p.config && p.config.actionDir) || '.'; const status = p.status || {}; const counts = status.counts || {}; const queue = status.queue || {}; const stateLabel = p.active === false ? 'inactive' : (queue.paused ? 'paused' : 'active'); const d = document.createElement('div'); d.className = 'pCard' + (p.projectId === currentProject ? ' active' : ''); d.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between"><div><div style="font-weight:700">${p.projectId}</div><div style="margin-top:4px"><span class="stat" title="Click to edit actionDir" style="cursor:pointer" onclick="event.stopPropagation(); editActionDir(this,'${p.projectId}')"><u>actionDir:</u> ${actionDir}</span><span class="stat">pending ${counts.pending||0}</span><span class="stat">running ${counts.running||0}</span><span class="stat">done ${counts.done||0}</span></div></div><div style="display:flex;gap:4px"><button class="btn sm delBtn" data-id="${p.projectId}">×</button><div class="status">${statusPill(stateLabel)}</div></div></div>`; d.onclick = (e) => { if (!e.target.classList.contains('delBtn')) { currentProject = p.projectId; loadAll(); } }; el.appendChild(d); }); el.querySelectorAll('.delBtn').forEach(btn => { btn.onclick = async (e) => { e.stopPropagation(); const projectId = btn.getAttribute('data-id'); if (!confirm('Delete project "' + projectId + '"? This will remove all agents and data for this project.')) return; try { await fetch('/projects/' + projectId, { method: 'DELETE' }); await loadProjects(); } catch (err) { console.error(err); } } }); document.getElementById('projTitle').textContent = 'Flow — ' + (currentProject || ''); }
@@ -291,7 +313,63 @@ async function loadMemory() {
       + '<div class="pCard" style="min-width:220px"><div class="topTitle">Short-term</div><div class="stat">size ' + (j.short && j.short.size || 0) + '</div><div class="stat">updated ' + fmt(j.short) + '</div></div>'
       + '<div class="pCard" style="min-width:220px"><div class="topTitle">Long-term</div><div class="stat">size ' + (j.long && j.long.size || 0) + '</div><div class="stat">updated ' + fmt(j.long) + '</div></div>'
       + '<div class="pCard" style="min-width:220px"><div class="topTitle">Personalization</div><div class="stat">' + (j.personalization && j.personalization.exists ? 'exported' : 'not exported') + '</div><div class="stat" style="max-width:360px">' + (j.personalization && j.personalization.path || '') + '</div></div>';
+    // Append File Memory view
+    const wrap = document.createElement('div');
+    wrap.className = 'pCard';
+    const head = document.createElement('div'); head.className='topTitle'; head.textContent='File Memory';
+    const body = document.createElement('div'); body.id='fileMem'; body.className='filemem'; body.textContent='Loading…';
+    wrap.appendChild(head); wrap.appendChild(body);
+    el.appendChild(wrap);
+    await loadFileMemory();
   } catch (e) { }
+}
+
+async function loadFileMemory(){
+  try{
+    const r = await fetch('/memory/files?project=' + encodeURIComponent(currentProject));
+    const j = await r.json();
+    const el = document.getElementById('fileMem');
+    if(!el){ return; }
+    if(!j.ok){ el.textContent = 'No file memory available.'; return; }
+    el.innerHTML = '';
+    const groups = Array.isArray(j.groups)? j.groups: [];
+    if(!groups.length){ el.textContent = 'No files summarized yet. Run a scan to populate.'; return; }
+    groups.forEach(g=>{
+      const d = document.createElement('div'); d.className='dir';
+      const t = document.createElement('div'); t.className='title'; t.textContent = g.dir || '.';
+      const controls = document.createElement('div'); controls.className='meta';
+      const rescan = document.createElement('button'); rescan.className='btn sm'; rescan.textContent='Rescan';
+      rescan.addEventListener('click', async ()=>{
+        try{
+          const payload = { text: 'Rescan directory', actions: [{ tool: 'execute', args: { kind: 'scan', input: JSON.stringify({ root: g.dir || '.' }) } }] };
+          const rr = await fetch('/control?project=' + encodeURIComponent(currentProject), { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(payload) });
+          try { const jj = await rr.json(); if (jj && (jj.text || jj.raw)) addActionFeedback('Controller (rescan)', jj.text || jj.raw); } catch {}
+        }catch(e){ console.error(e); }
+      });
+      controls.appendChild(rescan);
+      t.appendChild(controls);
+      d.appendChild(t);
+      (g.files||[]).forEach(f=>{
+        const it = document.createElement('div'); it.className='item';
+        const pathEl = document.createElement('div'); pathEl.className='path'; pathEl.textContent = f.path;
+        const copyBtn = document.createElement('button'); copyBtn.className='btn sm'; copyBtn.textContent='Copy'; copyBtn.style.marginLeft='8px';
+        copyBtn.addEventListener('click', async ()=>{ try{ await navigator.clipboard.writeText(f.path); }catch{} });
+        const openBtn = document.createElement('button'); openBtn.className='btn sm'; openBtn.textContent='Open'; openBtn.style.marginLeft='8px';
+        openBtn.addEventListener('click', async ()=>{ try{ await fetch('/open/file', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ project: currentProject, path: f.path }) }); }catch(e){ console.error(e); } });
+        const metaEl = document.createElement('div'); metaEl.className='meta'; metaEl.textContent = (f.mtime? new Date(f.mtime).toLocaleString(): '—') + (f.size? ' • ' + f.size + 'B' : '');
+        const sumEl = document.createElement('div'); sumEl.className='sum'; sumEl.textContent = f.summary || '';
+        const pathRow = document.createElement('div'); pathRow.appendChild(pathEl); pathRow.appendChild(copyBtn); pathRow.appendChild(openBtn);
+        it.appendChild(pathRow); it.appendChild(metaEl); it.appendChild(sumEl);
+        const extra = [];
+        if(f.dataIn) extra.push('in: ' + f.dataIn);
+        if(f.dataOut) extra.push('out: ' + f.dataOut);
+        if(f.services) extra.push('svc: ' + f.services);
+        if(extra.length){ const io = document.createElement('div'); io.className='io'; io.textContent = extra.join(' • '); it.appendChild(io); }
+        d.appendChild(it);
+      });
+      el.appendChild(d);
+    });
+  }catch(e){ const el=document.getElementById('fileMem'); if(el) el.textContent='Error loading file memory.'; }
 }
 
 // Graph
@@ -360,6 +438,7 @@ async function loadConfig() {
               body: JSON.stringify({ text: 'continue plan', options: { loop: true, maxTurns: 2 } })
             });
             let j = null; try { j = await r.json(); } catch {}
+            if (!r.ok) { console.error('Control fetch failed:', r.status, r.statusText, j); alert('Controller error: ' + (j?.error || r.statusText)); return; }
             if (j && (j.text || j.raw)) addActionFeedback('Continue plan', j.text || j.raw);
             await loadAgents();
             await loadPlan();
@@ -400,6 +479,41 @@ async function loadConfig() {
     ];
   } catch (e) { console.error(e); }
 }
+
+// Center tabs
+function initCenterTabs(){
+  const tabs = document.querySelectorAll('.tabbar .tab');
+  tabs.forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      tabs.forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      showCenterTab(btn.dataset.tab);
+    });
+  });
+  showCenterTab('flow');
+}
+
+function showCenterTab(name){
+  const panes = {
+    flow: document.getElementById('pane-flow'),
+    short: document.getElementById('pane-short'),
+    long: document.getElementById('pane-long'),
+    structure: document.getElementById('pane-structure'),
+    files: document.getElementById('pane-files'),
+  };
+  Object.values(panes).forEach(p=>{ if(p) p.classList.remove('show'); });
+  if (panes[name]) panes[name].classList.add('show');
+  if (name==='flow') { drawGraph(lastAgents || []); }
+  if (name==='short') { loadCenterShort(); }
+  if (name==='long') { loadCenterLong(); }
+  if (name==='structure') { loadCenterStructure(); }
+  if (name==='files') { loadCenterFiles(); }
+}
+
+async function loadCenterShort(){ try { const r=await fetch('/memory/short?project=' + encodeURIComponent(currentProject)); const j=await r.json(); const el=document.getElementById('pane-short'); el.innerHTML=''; const pre=document.createElement('pre'); pre.className='mem-text'; pre.textContent=j.text||''; el.appendChild(pre); } catch(e){} }
+async function loadCenterLong(){ try { const r=await fetch('/memory/long?project=' + encodeURIComponent(currentProject)); const j=await r.json(); const el=document.getElementById('pane-long'); el.innerHTML=''; const pre=document.createElement('pre'); pre.className='mem-text'; pre.textContent=j.text||''; el.appendChild(pre); } catch(e){} }
+async function loadCenterStructure(){ try { const r=await fetch('/memory/structure?project=' + encodeURIComponent(currentProject)); const j=await r.json(); const el=document.getElementById('pane-structure'); el.innerHTML=''; if(!j.ok){ el.textContent='No structure available.'; return; } const header=document.createElement('div'); header.className='meta'; const rescanAll=document.createElement('button'); rescanAll.className='btn sm'; rescanAll.textContent='Rescan Repository (Structure)'; rescanAll.addEventListener('click', async ()=>{ try{ const rr=await fetch('/scan?project='+encodeURIComponent(currentProject),{ method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ root: '.', mode:'structure' })}); try{ const jj=await rr.json(); addActionFeedback('Structure (ALL)', JSON.stringify(jj)); }catch{} loadCenterStructure(); }catch(e){ console.error(e); } }); header.appendChild(rescanAll); el.appendChild(header); const wrap=document.createElement('div'); wrap.className='filemem'; (j.groups||[]).forEach(g=>{ const d=document.createElement('div'); d.className='dir'; const t=document.createElement('div'); t.className='title'; t.textContent=g.dir||'.'; const controls=document.createElement('div'); controls.className='meta'; const rescan=document.createElement('button'); rescan.className='btn sm'; rescan.textContent='Rescan'; rescan.addEventListener('click', async ()=>{ try{ const rr=await fetch('/scan?project='+encodeURIComponent(currentProject),{ method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ root: g.dir||'.', mode:'structure' })}); try{ const jj=await rr.json(); addActionFeedback('Structure (dir)', JSON.stringify(jj)); }catch{} loadCenterStructure(); }catch(e){ console.error(e); } }); controls.appendChild(rescan); t.appendChild(controls); d.appendChild(t); (g.files||[]).slice(0,20).forEach(f=>{ const it=document.createElement('div'); it.className='item'; const pathEl=document.createElement('div'); pathEl.className='path'; pathEl.textContent=f.path; const meta=document.createElement('div'); meta.className='meta'; meta.textContent=(f.mtime? new Date(f.mtime).toLocaleString(): '—') + (f.size? ' • '+f.size+'B':'' ); it.appendChild(pathEl); it.appendChild(meta); d.appendChild(it); }); wrap.appendChild(d); }); el.appendChild(wrap); } catch(e){ const el=document.getElementById('pane-structure'); if(el) el.textContent='Error.'; } }
+async function loadCenterFiles(){ try { const r=await fetch('/memory/files?project=' + encodeURIComponent(currentProject)); const j=await r.json(); const el=document.getElementById('pane-files'); el.innerHTML=''; if(!j.ok){ el.textContent='No files summarized.'; return; } const groups=Array.isArray(j.groups)? j.groups: []; if(!groups.length){ el.textContent='No files summarized yet. Run a scan.'; } const header=document.createElement('div'); header.className='meta'; const rescanAll=document.createElement('button'); rescanAll.className='btn sm'; rescanAll.textContent='Rescan Repository (Files)'; rescanAll.addEventListener('click', async ()=>{ try{ const rr=await fetch('/scan?project='+encodeURIComponent(currentProject),{ method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ root: '.' })}); try{ const jj=await rr.json(); addActionFeedback('Scan (ALL)', JSON.stringify(jj)); }catch{} loadCenterFiles(); }catch(e){ console.error(e); } }); header.appendChild(rescanAll); el.appendChild(header); const wrap=document.createElement('div'); wrap.className='filemem'; groups.forEach(g=>{ const d=document.createElement('div'); d.className='dir'; const t=document.createElement('div'); t.className='title'; t.textContent=g.dir||'.'; const controls=document.createElement('div'); controls.className='meta'; const rescan=document.createElement('button'); rescan.className='btn sm'; rescan.textContent='Rescan'; rescan.addEventListener('click', async ()=>{ try{ const rr=await fetch('/scan?project='+encodeURIComponent(currentProject),{ method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ root: g.dir||'.' })}); try{ const jj=await rr.json(); addActionFeedback('Scan (dir)', JSON.stringify(jj)); }catch{} loadCenterFiles(); }catch(e){ console.error(e); } }); controls.appendChild(rescan); t.appendChild(controls); d.appendChild(t); (g.files||[]).forEach(f=>{ const it=document.createElement('div'); it.className='item'; const path=document.createElement('div'); path.className='path'; path.textContent=f.path; const meta=document.createElement('div'); meta.className='meta'; meta.textContent=(f.mtime? new Date(f.mtime).toLocaleString(): '—') + (f.size? ' • '+f.size+'B':'' ); const sum=document.createElement('div'); sum.className='sum'; sum.textContent=f.summary||''; it.appendChild(path); it.appendChild(meta); it.appendChild(sum); d.appendChild(it); }); wrap.appendChild(d); }); el.appendChild(wrap); } catch(e){ const el=document.getElementById('pane-files'); if(el) el.textContent='Error.'; } }
 function openPalette() { palette.style.display = 'flex'; palInput.value = ''; renderPalList(PRESETS); palInput.focus(); }
 function closePalette() { palette.style.display = 'none'; }
 palInput.addEventListener('keydown', e => { if (e.key === 'Escape') { closePalette(); } if (e.key === 'Enter') { const first = palList.querySelector('.palItem'); if (first) { first.click(); } } });
@@ -416,9 +530,9 @@ document.getElementById('sendInterrupt').addEventListener('click', async () => {
 // Logs collapse + terminal
 document.getElementById('toggleLogs').addEventListener('click', () => { const w = document.getElementById('logsWrap'); const b = document.getElementById('toggleLogs'); const vis = w.style.display !== 'none'; w.style.display = vis ? 'none' : 'block'; b.textContent = vis ? 'Show' : 'Hide'; });
 document.getElementById('toggleTerm').addEventListener('click', () => { const w = document.getElementById('termWrap'); const b = document.getElementById('toggleTerm'); const vis = w.style.display !== 'none'; w.style.display = vis ? 'none' : 'block'; b.textContent = vis ? 'Show' : 'Hide'; if (!vis) { termAutoScroll = true; requestAnimationFrame(() => { const el = document.getElementById('term'); if (el) { el.scrollTop = el.scrollHeight; } }); } });
-document.getElementById('toggleAgents').addEventListener('click', () => { const w = document.getElementById('agentsWrap'); const b = document.getElementById('toggleAgents'); const vis = w.style.display !== 'none'; w.style.display = vis ? 'none' : 'block'; b.textContent = vis ? 'Show' : 'Hide'; });
-document.getElementById('togglePorts').addEventListener('click', () => { const w = document.getElementById('portsWrap'); const b = document.getElementById('togglePorts'); const vis = w.style.display !== 'none'; w.style.display = vis ? 'none' : 'block'; b.textContent = vis ? 'Show' : 'Hide'; });
-document.getElementById('toggleActions').addEventListener('click', () => { const w = document.getElementById('actionsWrap'); const b = document.getElementById('toggleActions'); const vis = w.style.display !== 'none'; w.style.display = vis ? 'none' : 'block'; b.textContent = vis ? 'Show' : 'Hide'; });
+document.getElementById('toggleAgents').addEventListener('click', () => { const w = document.getElementById('agentsWrap'); const b = document.getElementById('toggleAgents'); const vis = w.style.display !== 'none'; const nv = vis ? 'none' : 'block'; w.style.display = nv; b.textContent = vis ? 'Show' : 'Hide'; try{ localStorage.setItem('panel:agents', nv); }catch{} });
+document.getElementById('togglePorts').addEventListener('click', () => { const w = document.getElementById('portsWrap'); const b = document.getElementById('togglePorts'); const vis = w.style.display !== 'none'; const nv = vis ? 'none' : 'block'; w.style.display = nv; b.textContent = vis ? 'Show' : 'Hide'; try{ localStorage.setItem('panel:ports', nv); }catch{} });
+document.getElementById('toggleActions').addEventListener('click', () => { const w = document.getElementById('actionsWrap'); const b = document.getElementById('toggleActions'); const vis = w.style.display !== 'none'; const nv = vis ? 'none' : 'block'; w.style.display = nv; b.textContent = vis ? 'Show' : 'Hide'; try{ localStorage.setItem('panel:actions', nv); }catch{} });
 document.getElementById('clearActions').addEventListener('click', () => { const el = document.getElementById('actionsFeed'); if (el) el.innerHTML = ''; actionsFeedItems.length = 0; });
 
 // Plan drawer
@@ -484,6 +598,7 @@ document.getElementById('clearLogs').addEventListener('click', async () => {
 
 // Watchbar
 async function pollWatch() { try { const r = await fetch('/watch/state'); const j = await r.json(); const s = j.state || {}; const wb = document.getElementById('watchbar'); if (!wb) return; if (s.active) { wb.style.display = 'inline-block'; const msg = s.step === 'staging' ? `staging :${s.targetPort || ''}` : (s.step === 'switching' ? 'switching' : `restart in ${s.seconds || 0}s`); wb.textContent = msg; } else { wb.style.display = 'none'; } } catch (e) { } }
+function bindActionsSSE(){ try{ if(actionsSource){ actionsSource.close(); actionsSource=null; } }catch{}; try{ actionsSource=new EventSource('/actions/sse?project='+encodeURIComponent(currentProject||'')); actionsSource.onmessage=(ev)=>{ try{ const d=JSON.parse(ev.data||'{}'); if(d&&d.text&&d.label) addActionFeedback(String(d.label||'action'), String(d.text||'')); }catch{} }; actionsSource.onerror=()=>{ try{ actionsSource.close(); }catch{}; actionsSource=null; }; }catch{} }
 
 async function loadPorts() {
   try {
@@ -583,14 +698,31 @@ async function loadAll() {
   // Ensure a valid currentProject before loading config and actions
   await loadProjects();
   await loadConfig();
+  initCenterTabs();
   loadAgents();
   loadLogs();
   loadTerm();
   loadChat();
   loadPlan();
   loadPorts();
+  bindActionsSSE();
 }
 
 loadAll();
 setInterval(pollWatch, 1000);
 setInterval(loadPorts, 5000);
+// Initialize UI state from localStorage
+try{ (function initUIState(){
+  const setPanel=(key,wrapId,btnId,defVisible)=>{ const w=document.getElementById(wrapId); const b=document.getElementById(btnId); if(!w||!b) return; let v=localStorage.getItem(key); if(v!=='block' && v!=='none'){ v=defVisible? 'block':'none'; } w.style.display=v; b.textContent = v==='block' ? 'Hide' : 'Show'; };
+  setPanel('panel:logs','logsWrap','toggleLogs', false);
+  setPanel('panel:term','termWrap','toggleTerm', false);
+  setPanel('panel:agents','agentsWrap','toggleAgents', true);
+  setPanel('panel:ports','portsWrap','togglePorts', true);
+  setPanel('panel:actions','actionsWrap','toggleActions', true);
+  const applyFilters=()=>{ const feed=document.getElementById('actionsFeed'); if(!feed) return; feed.innerHTML=''; for(const it of actionsFeedItems){ if(shouldShowFeedItem(it.type)){ const node=document.createElement('div'); node.className='item'; if(it.type) node.dataset.type=it.type; node.innerHTML=`<details><summary>${it.label} — ${it.ts}</summary><pre>${it.text}</pre></details>`; feed.appendChild(node); } } };
+  const bind=(id,key,def=true)=>{ const el=document.getElementById(id); if(!el) return; const v=localStorage.getItem(key); if(v==='0') el.checked=false; else if(v==='1') el.checked=true; else el.checked=def; el.addEventListener('change',()=>{ try{ localStorage.setItem(key, el.checked?'1':'0'); }catch{}; applyFilters(); }); };
+  bind('fltController','feed:controller', true);
+  bind('fltProcess','feed:process', true);
+  bind('fltAuto','feed:auto', true);
+  applyFilters();
+})(); }catch{}

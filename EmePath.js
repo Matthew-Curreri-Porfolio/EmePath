@@ -25,6 +25,16 @@ let CURRENT_PORT = null;
 let CONSOLE_LOG_ATTACHED = false;
 const WATCH_STATE = { active: false, seconds: 0, step: '', targetPort: null };
 let STACK_PID_ID = null;
+// SSE: actions feed subscribers
+const ACTIONS_SSE = []; // { res, pid }
+// Env toggles
+function envBool(name, def = true) {
+  const v = String(process.env[name] || '').toLowerCase();
+  if (v === '1' || v === 'true' || v === 'yes') return true;
+  if (v === '0' || v === 'false' || v === 'no') return false;
+  return def;
+}
+const PROMPT_REPAIR_ON = envBool('PROMPT_REPAIR', true);
 
 // Global control flags
 const CONTROL = { paused: false };
@@ -65,6 +75,103 @@ function resolveProjectConfig(projectId, { userId = 1, workspaceId = DEFAULT_WOR
 
 function toStr(x) {
   return typeof x === 'string' ? x : x == null ? '' : String(x);
+}
+
+// Global max tokens helper with sensible default
+function getMaxTokens(requested) {
+  const MAX = Number(process.env.EMEPATH_LLM_MAX_TOKENS || process.env.LLM_MAX_TOKENS || '4096') || 4096;
+  const want = Number(requested || 0);
+  if (Number.isFinite(want) && want > 0) return Math.min(want, MAX);
+  return MAX;
+}
+
+function logPromptUsage(kind, meta = {}) {
+  try {
+    const line = [
+      `[prompt] kind=${kind}`,
+      `policy=${envBool('PROMPT_INCLUDE_POLICY', true) ? 'on' : 'off'}`,
+      `personal=${envBool('PROMPT_INCLUDE_PERSONAL', true) ? 'on' : 'off'}`,
+      `repair=${PROMPT_REPAIR_ON ? 'on' : 'off'}`,
+      meta.actionDir ? `actionDir=${meta.actionDir}` : '',
+      meta.maxTokens ? `maxTokens=${meta.maxTokens}` : '',
+    ].filter(Boolean).join(' ');
+    console.info(line);
+  } catch {}
+}
+
+// -------------------- Robust JSON lint & parse helpers --------------------
+function stripCodeFences(s) {
+  const txt = String(s || '');
+  // Remove common ```json ... ``` or ``` ... ``` wrappers
+  return txt.replace(/```+\s*json\s*([\s\S]*?)```+/gi, '$1').replace(/```+\s*([\s\S]*?)```+/g, '$1');
+}
+
+function extractJSONObjects(text) {
+  const s = stripCodeFences(text);
+  const out = [];
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === '}') {
+      if (depth > 0) depth--;
+      if (depth === 0 && start !== -1) {
+        out.push(s.slice(start, i + 1));
+        start = -1;
+      }
+    }
+  }
+  return out;
+}
+
+function coerceControllerSchema(obj) {
+  const o = obj && typeof obj === 'object' ? obj : {};
+  if (!Array.isArray(o.updates)) o.updates = [];
+  if (!Array.isArray(o.requirements)) o.requirements = [];
+  if (!Array.isArray(o.alternatives)) o.alternatives = [];
+  if (!Array.isArray(o.agents)) delete o.agents; // optional
+  if (!Array.isArray(o.actions)) o.actions = [];
+  if (typeof o.intent !== 'string') o.intent = '';
+  return o;
+}
+
+function coercePlannerSchema(obj) {
+  const o = obj && typeof obj === 'object' ? obj : {};
+  if (!Array.isArray(o.goals)) o.goals = [];
+  if (!Array.isArray(o.plan)) o.plan = [];
+  if (!Array.isArray(o.checklist)) o.checklist = [];
+  if (!Array.isArray(o.agents)) o.agents = [];
+  if (typeof o.intent !== 'string') o.intent = '';
+  return o;
+}
+
+function robustParseController(raw) {
+  let parsed = null;
+  try { parsed = JSON.parse(raw); } catch {}
+  if (parsed && typeof parsed === 'object') return coerceControllerSchema(parsed);
+  const objs = extractJSONObjects(raw);
+  for (let i = objs.length - 1; i >= 0; i--) {
+    try { const p = JSON.parse(objs[i]); if (p && typeof p === 'object') return coerceControllerSchema(p); } catch {}
+  }
+  return null;
+}
+
+function robustParsePlanner(raw) {
+  let parsed = null;
+  try { parsed = JSON.parse(raw); } catch {}
+  if (parsed && typeof parsed === 'object') return coercePlannerSchema(parsed);
+  const objs = extractJSONObjects(raw);
+  for (let i = objs.length - 1; i >= 0; i--) {
+    try { const p = JSON.parse(objs[i]); if (p && typeof p === 'object') return coercePlannerSchema(p); } catch {}
+  }
+  return null;
+}
+
+function safeJson(s) {
+  try { return JSON.parse(String(s || '')); } catch { return null; }
 }
 
 async function readFileSafe(p) {
@@ -530,6 +637,9 @@ async function startServer(brain, { projectId, userId, argv }) {
     return { actionDir, record, memory: cfg.memory || {} };
   }
 
+  // Make globally available for any code that might need it
+  global.getProjectConfig = getProjectConfig;
+
   // Aggregate known projects and their status/config
   async function listProjectsStatus() {
     const brain = LAST_BRAIN;
@@ -924,15 +1034,18 @@ async function startServer(brain, { projectId, userId, argv }) {
       const baseUrl = `${req.protocol}://${req.get('host')}`;
       const contract = getPrompt('contracts.json_object_strict') || '';
       const hasModelPath = !!process.env.LORA_MODEL_PATH;
+      const cfgCtl = getProjectConfig(pid);
       const system = composeSystem('emepath.planner.system', {
         checkInBase: baseUrl,
         checkInIntervalEOT: Number(process.env.AGENT_CHECKIN_EOT || '1') || 1,
         capabilities: toStr(process.env.EMEPATH_CAPABILITIES || 'distill,scan,query'),
         contract,
         modelConfigured: hasModelPath ? 'true' : 'false',
+        actionDir: cfgCtl?.actionDir || '.',
       });
       const userMsg = [
         `Env: ${JSON.stringify(env)}`,
+        `ActionDir: ${cfgCtl?.actionDir || '.'}`,
         `Input: ${textRaw}`,
         `Respond strictly with the JSON object as per schema.`,
       ].join('\n');
@@ -943,7 +1056,9 @@ async function startServer(brain, { projectId, userId, argv }) {
 
       let raw;
       try {
-        const out = await brain.llm.chat({ messages, temperature: Number(opts.temperature || 0.2), maxTokens: Number(opts.maxTokens || 1024) });
+        const maxT = getMaxTokens(opts.maxTokens);
+        logPromptUsage('planner', { actionDir: cfgCtl?.actionDir || '.', maxTokens: maxT });
+        const out = await brain.llm.chat({ messages, temperature: Number(opts.temperature || 0.2), maxTokens: maxT });
         raw = toStr(out?.content || '');
       } catch (e) {
         if (isNoModelError(e)) {
@@ -954,8 +1069,7 @@ async function startServer(brain, { projectId, userId, argv }) {
         }
         throw e;
       }
-      let parsed = null;
-      try { parsed = JSON.parse(raw); } catch {}
+      let parsed = robustParsePlanner(raw);
       const wantTextOut = toStr(req.query?.format || '').toLowerCase() === 'text' || (req.headers.accept || '').includes('text/plain');
       if (!parsed) return res.status(200).type(wantTextOut ? 'text/plain' : 'application/json').send(wantTextOut ? raw : JSON.stringify({ ok: true, raw }));
 
@@ -1011,8 +1125,11 @@ async function startServer(brain, { projectId, userId, argv }) {
       if (wantTextOut) {
         const extra = job ? `\nJob: ${job.id} status=${job.status}` : '';
         const aextra = actionResults.length ? `\nActions: ${actionResults.map(a => a.tool+':' + (a.ok?'ok':('error:'+ (a.error||'')))).join(', ')}` : '';
-        return res.type('text/plain').send(manifestText + extra + aextra);
+        const outText = manifestText + extra + aextra;
+        publishActionEvent({ projectId: pid, label: 'process', text: outText });
+        return res.type('text/plain').send(outText);
       }
+      publishActionEvent({ projectId: pid, label: 'process', text: manifestText });
       return res.json({ ok: true, text: manifestText, plan: parsed, agents, job: job ? { id: job.id, status: job.status } : null, actions: actionResults });
     } catch (e) {
       return res.status(500).json({ ok: false, error: toStr(e?.message || e) });
@@ -1049,9 +1166,11 @@ async function startServer(brain, { projectId, userId, argv }) {
       const baseUrl = `${req.protocol}://${req.get('host')}`;
       const contract = getPrompt('contracts.json_object_strict') || '';
       const toolsSpec = buildToolsSpec(baseUrl);
-      const system = composeSystem('emepath.controller.system', { toolsSpec, contract });
+      const cfgCtl = getProjectConfig(pidCtl);
+      const system = composeSystem('emepath.controller.system', { toolsSpec, contract, actionDir: cfgCtl?.actionDir || '.' });
       const userMsg = [
         `Env: ${JSON.stringify(env)}`,
+        `ActionDir: ${cfgCtl?.actionDir || '.'}`,
         `Input: ${textRaw}`,
         `Respond strictly with the JSON object as per schema.`,
       ].join('\n');
@@ -1067,6 +1186,7 @@ async function startServer(brain, { projectId, userId, argv }) {
         ? await runControlLoop(brain, { textRaw, env, options: opts, baseUrl, maxTurns })
         : await runControlOnce(brain, { textRaw, env, options: opts, baseUrl });
 
+      publishActionEvent({ projectId: pidCtl, label: 'controller', text: toStr(turnRes.text || turnRes.raw || '') });
       if (wantTextOut) return res.type('text/plain').send(turnRes.text);
       return res.json(turnRes);
     } catch (e) {
@@ -1198,6 +1318,140 @@ async function startServer(brain, { projectId, userId, argv }) {
       const personalPath = path.resolve(process.cwd(), 'data', 'training', `personal.${String(pid).replace(/[^a-zA-Z0-9_.-]+/g, '_')}.jsonl`);
       const exists = fs.existsSync(personalPath);
       res.json({ ok: true, short: { size: short?.content?.length || 0, updatedAt: short?.updatedAt || null }, long: { size: long?.content?.length || 0, updatedAt: long?.updatedAt || null }, agents: { size: agentsSnap?.content?.length || 0, updatedAt: agentsSnap?.updatedAt || null }, personalization: { path: personalPath, exists } });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
+    }
+  });
+
+  // Memory content APIs for center tabs
+  app.get('/memory/short', (req, res) => {
+    try {
+      const pid = toStr(req.query?.project || projectId);
+      const row = db.getMemory(userId, pid, 'short', 'chat');
+      res.json({ ok: true, text: row?.content || '', updatedAt: row?.updatedAt || null });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
+    }
+  });
+  app.get('/memory/long', (req, res) => {
+    try {
+      const pid = toStr(req.query?.project || projectId);
+      const row = db.getMemory(userId, pid, 'long', 'chat');
+      res.json({ ok: true, text: row?.content || '', updatedAt: row?.updatedAt || null });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
+    }
+  });
+
+  // Open a file in local editor (best-effort)
+  app.post('/open/file', async (req, res) => {
+    try {
+      const pid = toStr(req.body?.project || req.query?.project || projectId);
+      const rel = toStr(req.body?.path || req.query?.path || '');
+      if (!rel) return res.status(400).json({ ok: false, error: 'missing_path' });
+      const cfg = getProjectConfig(pid);
+      const actionDir = path.resolve(process.cwd(), toStr(cfg.actionDir || '.'));
+      const abs = path.resolve(actionDir, rel);
+      // Safety: ensure abs is within actionDir
+      if (!abs.startsWith(actionDir)) return res.status(400).json({ ok: false, error: 'path_out_of_scope' });
+      // Prefer VS Code if available; else OS default
+      let started = false;
+      try {
+        const p = spawn('code', ['-g', abs], { stdio: 'ignore', detached: true });
+        p.unref();
+        started = true;
+      } catch {}
+      if (!started) {
+        try {
+          if (process.platform === 'darwin') {
+            const p = spawn('open', [abs], { stdio: 'ignore', detached: true }); p.unref(); started = true;
+          } else if (process.platform === 'win32') {
+            const p = spawn('cmd', ['/c', 'start', '""', abs], { stdio: 'ignore', detached: true }); p.unref(); started = true;
+          } else {
+            const p = spawn('xdg-open', [abs], { stdio: 'ignore', detached: true }); p.unref(); started = true;
+          }
+        } catch {}
+      }
+      if (!started) return res.status(500).json({ ok: false, error: 'open_failed' });
+      res.json({ ok: true, path: abs });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
+    }
+  });
+
+  // File memory snapshot (per-directory, newest first)
+  app.get('/memory/files', (req, res) => {
+    try {
+      const pid = toStr(req.query?.project || projectId);
+      const srow = db.getMemory(userId, pid, 'short', 'files');
+      const lrow = db.getMemory(userId, pid, 'long', 'files');
+      const shortTxt = srow?.content || '';
+      const lines = String(shortTxt).trim() ? String(shortTxt).split(/\r?\n/).slice(-2000) : [];
+      const recs = [];
+      for (const ln of lines) {
+        try { const j = JSON.parse(ln); if (j && j.path) recs.push(j); } catch {}
+      }
+      recs.sort((a,b)=> Number(b.mtime||b.mtimeMs||0) - Number(a.mtime||a.mtimeMs||0));
+      const byDir = new Map();
+      for (const r of recs) {
+        const d = String(r.dir || path.dirname(r.path) || '.');
+        if (!byDir.has(d)) byDir.set(d, []);
+        const arr = byDir.get(d);
+        if (arr.length < 5) arr.push({
+          path: r.path,
+          summary: toStr(r.summary || ''),
+          mtime: Number(r.mtime || r.mtimeMs || 0),
+          size: Number(r.size || 0),
+          dataIn: toStr(r.dataIn || ''),
+          dataOut: toStr(r.dataOut || ''),
+          services: toStr(r.services || ''),
+        });
+      }
+      const groups = Array.from(byDir.entries()).map(([dir, files])=>({ dir, files }));
+      groups.sort((a,b)=>{
+        const am = a.files && a.files.length ? a.files[0].mtime : 0;
+        const bm = b.files && b.files.length ? b.files[0].mtime : 0;
+        return bm - am;
+      });
+      res.json({ ok: true, short: { count: recs.length, updatedAt: srow?.updatedAt || null }, long: { count: (lrow?.content || '').length, updatedAt: lrow?.updatedAt || null }, groups });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
+    }
+  });
+
+  // Structure memory snapshot
+  app.get('/memory/structure', async (req, res) => {
+    try {
+      const pid = toStr(req.query?.project || projectId);
+      const row = db.getMemory(userId, pid, 'short', 'structure');
+      if (row && row.content) {
+        try { return res.json({ ok: true, ...JSON.parse(row.content), updatedAt: row.updatedAt || null }); } catch {}
+      }
+      // Fallback: compute lightweight structure on demand
+      const cfg = getProjectConfig(pid);
+      const s = await scanDirStructure(cfg.actionDir || '.');
+      res.json({ ok: true, ...s, updatedAt: new Date().toISOString() });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
+    }
+  });
+
+  // Direct scan endpoint (structure or detailed)
+  app.post('/scan', async (req, res) => {
+    try {
+      const pid = toStr(req.body?.project || req.query?.project || projectId);
+      const rootIn = toStr(req.body?.root || req.query?.root || '.');
+      const mode = toStr(req.body?.mode || req.query?.mode || '').toLowerCase();
+      const listOnly = mode === 'structure' || String(req.body?.listOnly || req.query?.listOnly || 'false').toLowerCase() === 'true';
+      const brain = LAST_BRAIN;
+      if (!brain) return res.status(500).json({ ok: false, error: 'brain_not_initialized' });
+      const ag = brain._spawnAgent({ projectId: pid, goal: listOnly ? 'manual-structure-scan' : 'manual-detailed-scan', input: JSON.stringify({ root: rootIn, listOnly }), expected: listOnly ? 'structure indexed' : 'index ready' });
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      const job = enqueueKindAware(brain, { userId, projectId: pid, agents: [{ ...ag, kind: 'scan' }], checklist: [], baseUrl });
+      publishActionEvent({ projectId: pid, label: listOnly ? 'structure' : 'scan', text: (listOnly ? 'Started structure scan: ' : 'Started detailed scan: ') + rootIn });
+      const wait = String(req.query?.background || req.body?.background || 'false').toLowerCase() !== 'true';
+      if (wait) await job.awaitDone();
+      return res.json({ ok: true, projectId: pid, job: { id: job.id, status: job.status }, mode: listOnly ? 'structure' : 'detailed' });
     } catch (e) {
       res.status(500).json({ ok: false, error: toStr(e?.message || e) });
     }
@@ -1417,6 +1671,25 @@ async function startServer(brain, { projectId, userId, argv }) {
     } catch (e) {
       res.status(500).end();
     }
+  });
+
+  // SSE: Actions feed
+  app.get('/actions/sse', (req, res) => {
+    try {
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+      });
+      const pid = toStr(req.query?.project || projectId);
+      const client = { res, pid };
+      ACTIONS_SSE.push(client);
+      req.on('close', () => {
+        const idx = ACTIONS_SSE.indexOf(client);
+        if (idx !== -1) ACTIONS_SSE.splice(idx, 1);
+      });
+      res.write('retry: 2000\n\n');
+    } catch (e) { res.status(500).end(); }
   });
 
   // Auto memory updater state
@@ -1849,9 +2122,28 @@ async function executeScanAgent(brain, projectId, agent, { userId = 1 } = {}) {
     const configActionDir = sanitizeActionDirValue(cfg.actionDir || '.');
     const root = path.resolve(configActionDir, toStr(j?.root || agent.input || ''));
     const maxFileSize = Number(j?.maxFileSize || process.env.SCAN_MAX_FILE || '262144') || 262144;
+    // Structure-only mode
+    const listOnly = String(j?.mode || '').toLowerCase() === 'structure' || (j && j.listOnly === true);
+    if (listOnly) {
+      const s = await scanDirStructure(root);
+      await writeStructureToMemory({ projectId, userId, root: s.root, groups: s.groups });
+      brain.checkIn(agent.id, 'done', { note: `structure ok root=${s.root} groups=${s.groups.length}`, eotsDelta: 1 });
+      agentLog(projectId, `[${agent.id}] structure complete: ${s.groups.length} directories`);
+      publishActionEvent({ projectId, label: 'structure', text: `Indexed structure under ${s.root} (${s.groups.length} directories).` });
+      return;
+    }
     const r = await scanDirToIndex(root, maxFileSize);
+    // Write structure (even in detailed mode)
+    try {
+      const groups = Array.from((SCAN_INDEX.byDir || new Map()).entries()).map(([dir, files]) => ({ dir, files: files.map(f=>({ path: path.relative(SCAN_INDEX.root, f.path), size: f.size, mtime: f.mtimeMs })) }));
+      await writeStructureToMemory({ projectId, userId, root: r.root, groups });
+    } catch {}
+    // Summarize top-N recent files per directory and persist to memory
+    const maxSummaries = Number(process.env.SCAN_SUMMARY_MAX || '50') || 50;
+    await summarizeFilesToMemory({ projectId, userId, root, max: maxSummaries });
     brain.checkIn(agent.id, 'done', { note: `scan ok root=${r.root} files=${r.count}`, eotsDelta: 1 });
-    agentLog(projectId, `[${agent.id}] scan complete: ${r.count} files`);
+    agentLog(projectId, `[${agent.id}] scan complete: ${r.count} files (summarized up to ${maxSummaries})`);
+    publishActionEvent({ projectId, label: 'scan', text: `Scanned ${r.count} files under ${r.root} and updated file memory.` });
   } catch (e) {
     const emsg = toStr(e?.message || e);
     brain.checkIn(agent.id, 'error', { note: emsg });
@@ -3049,6 +3341,22 @@ function attachConsoleFileLogger() {
   console.info = (...a) => { write(ts('info', a)); try { orig.info.apply(console, a); } catch {} };
 }
 
+function publishActionEvent(ev) {
+  try {
+    const payload = JSON.stringify({
+      projectId: toStr(ev.projectId || ''),
+      label: toStr(ev.label || ''),
+      text: toStr(ev.text || ''),
+      ts: new Date().toISOString(),
+    });
+    for (const c of ACTIONS_SSE.slice()) {
+      if (!c?.res) continue;
+      if (ev.projectId && c.pid && toStr(c.pid) !== toStr(ev.projectId)) continue;
+      try { c.res.write('data: ' + payload + '\n\n'); } catch {}
+    }
+  } catch {}
+}
+
 function buildToolsSpec(baseUrl) {
   return [
     '- update_user: { text: string, level?: "info"|"warn"|"error" }',
@@ -3166,20 +3474,21 @@ async function runControllerAction(brain, { projectId, baseUrl, userId = 1 }, ac
   if (tool === 'execute') {
     const kind = toStr(args.kind || '').toLowerCase();
     const background = !!args.background;
+    const inputPayload = (typeof args.input === 'string') ? args.input : (args.input != null ? JSON.stringify(args.input) : '');
     if (kind === 'distill') {
-      const ag = brain._spawnAgent({ projectId, goal: 'controller-distill', input: toStr(args.input || ''), expected: 'JSONL' });
+      const ag = brain._spawnAgent({ projectId, goal: 'controller-distill', input: inputPayload, expected: 'JSONL' });
       const job = enqueueKindAware(brain, { userId, projectId, agents: [{ ...ag, kind: 'distill' }], checklist: parsed.checklist || [], baseUrl });
       if (!background) await job.awaitDone();
       return { tool, ok: true, job: { id: job.id, status: job.status } };
     }
     if (kind === 'scan') {
-      const ag = brain._spawnAgent({ projectId, goal: 'controller-scan', input: toStr(args.input || ''), expected: 'index ready' });
+      const ag = brain._spawnAgent({ projectId, goal: 'controller-scan', input: inputPayload, expected: 'index ready' });
       const job = enqueueKindAware(brain, { userId, projectId, agents: [{ ...ag, kind: 'scan' }], checklist: parsed.checklist || [], baseUrl });
       if (!background) await job.awaitDone();
       return { tool, ok: true, job: { id: job.id, status: job.status } };
     }
     if (kind === 'query') {
-      const ag = brain._spawnAgent({ projectId, goal: 'controller-query', input: toStr(args.input || ''), expected: 'hits json' });
+      const ag = brain._spawnAgent({ projectId, goal: 'controller-query', input: inputPayload, expected: 'hits json' });
       const job = enqueueKindAware(brain, { userId, projectId, agents: [{ ...ag, kind: 'query' }], checklist: parsed.checklist || [], baseUrl });
       if (!background) await job.awaitDone();
       return { tool, ok: true, job: { id: job.id, status: job.status } };
@@ -3221,7 +3530,8 @@ function renderControllerText(parsed, reqStatus, results) {
 async function runControlOnce(brain, { textRaw, env = {}, options = {}, baseUrl }) {
   const contract = getPrompt('contracts.json_object_strict') || '';
   const toolsSpec = buildToolsSpec(baseUrl);
-  const system = composeSystem('emepath.controller.system', { toolsSpec, contract });
+  const cfgCtl = getProjectConfig(toStr(env.projectId || ''));
+  const system = composeSystem('emepath.controller.system', { toolsSpec, contract, actionDir: cfgCtl?.actionDir || '.' });
   const envUserId = Number(env.userId || 1) || 1;
   const userMsg = [
     `Env: ${JSON.stringify(env)}`,
@@ -3234,7 +3544,9 @@ async function runControlOnce(brain, { textRaw, env = {}, options = {}, baseUrl 
   ];
   let raw;
   try {
-    const out = await brain.llm.chat({ messages, temperature: Number(options.temperature || 0.2), maxTokens: Number(options.maxTokens || 1024) });
+    const maxT = getMaxTokens(options.maxTokens);
+    logPromptUsage('controller', { actionDir: cfgCtl?.actionDir || '.', maxTokens: maxT });
+    const out = await brain.llm.chat({ messages, temperature: Number(options.temperature || 0.2), maxTokens: maxT });
     raw = toStr(out?.content || '');
   } catch (e) {
     if (isNoModelError(e)) {
@@ -3244,12 +3556,74 @@ async function runControlOnce(brain, { textRaw, env = {}, options = {}, baseUrl 
     }
     throw e;
   }
-  let parsed = null;
-  try { parsed = JSON.parse(raw); } catch {}
+  let parsed = robustParseController(raw);
+  // Backup repair for missing scan directives
+  try {
+    if (PROMPT_REPAIR_ON) {
+      const needScan = /\bscan(ning)?\b/i.test(String(textRaw || '')) || /scan repository/i.test(String(textRaw || ''));
+      const hasAgentScan = Array.isArray(parsed?.agents) && parsed.agents.some(a => String(a?.kind || '').toLowerCase() === 'scan');
+      const hasActionScan = Array.isArray(parsed?.actions) && parsed.actions.some(a => String(a?.tool || '').toLowerCase() === 'execute' && String(a?.args?.kind || '').toLowerCase() === 'scan');
+      if (parsed && needScan && !hasAgentScan && !hasActionScan) {
+        const systemRepair = composeSystem('emepath.repair.planner', { contract, actionDir: cfgCtl?.actionDir || '.' });
+        const userRepair = [
+          'ORIGINAL:',
+          JSON.stringify(parsed),
+          '',
+          'MISSING:',
+          '- Add a scan agent or an execute action that scans the repository at actionDir.',
+          `- actionDir: ${cfgCtl?.actionDir || '.'}`,
+          '',
+          'Return ONE corrected JSON object only.',
+        ].join('\n');
+        let rawFix = '';
+        try { const rMax = getMaxTokens(options.maxTokens); logPromptUsage('repair-planner', { actionDir: cfgCtl?.actionDir || '.', maxTokens: rMax }); const out2 = await brain.llm.chat({ messages: [ { role: 'system', content: systemRepair }, { role: 'user', content: userRepair } ], temperature: Number(options.temperature || 0.2), maxTokens: rMax }); rawFix = toStr(out2?.content || ''); } catch {}
+        try { const fixed = JSON.parse(rawFix); if (fixed && typeof fixed === 'object') { parsed = fixed; publishActionEvent({ projectId: String(env.projectId || ''), label: 'repair-planner', text: 'Added scan directive for actionDir: ' + (cfgCtl?.actionDir || '.') }); agentLog(String(env.projectId || ''), '[repair] planner: added scan directive'); } } catch {}
+      }
+    }
+  } catch {}
+  // Backup repair: ensure missing required elements (e.g., scan action) are filled
+  try {
+    const needScan = /\bscan(ning)?\b/i.test(String(textRaw || '')) || /scan repository/i.test(String(textRaw || ''));
+    const hasActions = Array.isArray(parsed?.actions) && parsed.actions.length > 0;
+    const hasScan = hasActions && parsed.actions.some(a => String(a?.tool || '').toLowerCase() === 'execute' && String(a?.args?.kind || '').toLowerCase() === 'scan');
+    if (PROMPT_REPAIR_ON && parsed && needScan && !hasScan) {
+      const cfgCtl = getProjectConfig(String(env.projectId || ''));
+      const systemRepair = composeSystem('emepath.repair.controller', { contract: getPrompt('contracts.json_object_strict') || '', actionDir: cfgCtl?.actionDir || '.' });
+      const missing = [ 'Add actions: [{"tool":"execute","args":{"kind":"scan","input":{"root":"' + (cfgCtl?.actionDir || '.') + '"}}}]' ];
+      const userRepair = [
+        'ORIGINAL:',
+        JSON.stringify(parsed),
+        '',
+        'MISSING:',
+        ...missing,
+        '',
+        'Return ONE corrected JSON object only.',
+      ].join('\n');
+      { const rMax = getMaxTokens(options.maxTokens); logPromptUsage('repair-controller', { actionDir: cfgCtl?.actionDir || '.', maxTokens: rMax }); const out2 = await brain.llm.chat({ messages: [ { role: 'system', content: systemRepair }, { role: 'user', content: userRepair } ], temperature: Number(options.temperature || 0.2), maxTokens: rMax });
+      try { const fixed = JSON.parse(toStr(out2?.content || '')); if (fixed && typeof fixed === 'object') { parsed = fixed; publishActionEvent({ projectId: String(env.projectId || ''), label: 'repair-controller', text: 'Added execute: scan with root=' + (cfgCtl?.actionDir || '.') }); agentLog(String(env.projectId || ''), '[repair] controller: added execute scan'); } } catch {}
+      }
+    }
+  } catch {}
   if (!parsed) return { ok: true, raw, text: raw };
   const reqStatus = await evaluateRequirements(Array.isArray(parsed.requirements) ? parsed.requirements : []);
   const results = [];
   let job = null;
+  // Fallback: if user asked to scan and no execute:scan action present, synthesize an action
+  try {
+    const needScan = /\bscan(ning)?\b/i.test(String(textRaw || '')) || /scan repository/i.test(String(textRaw || ''));
+    const hasActionScan = Array.isArray(parsed.actions) && parsed.actions.some(a => String(a?.tool || '').toLowerCase() === 'execute' && String(a?.args?.kind || '').toLowerCase() === 'scan');
+    const scanAgent = Array.isArray(parsed.agents) ? parsed.agents.find(a => String(a?.kind || '').toLowerCase() === 'scan') : null;
+    if (needScan && !hasActionScan && scanAgent) {
+      parsed.actions = Array.isArray(parsed.actions) ? parsed.actions.slice() : [];
+      parsed.actions.push({ tool: 'execute', args: { kind: 'scan', input: scanAgent.input ? (typeof scanAgent.input === 'string' ? (safeJson(scanAgent.input) || { root: scanAgent.input }) : scanAgent.input) : { root: '.' } } });
+      publishActionEvent({ projectId: toStr(env.projectId || ''), label: 'controller', text: 'Auto-added execute: scan from planned agent.' });
+    } else if (needScan && !hasActionScan && !scanAgent) {
+      const cfgCtl2 = getProjectConfig(toStr(env.projectId || ''));
+      parsed.actions = Array.isArray(parsed.actions) ? parsed.actions.slice() : [];
+      parsed.actions.push({ tool: 'execute', args: { kind: 'scan', input: { root: cfgCtl2?.actionDir || '.' } } });
+      publishActionEvent({ projectId: toStr(env.projectId || ''), label: 'controller', text: 'Synthesized execute: scan (root=' + (cfgCtl2?.actionDir || '.') + ')' });
+    }
+  } catch {}
   for (const act of Array.isArray(parsed.actions) ? parsed.actions : []) {
     const r = await runControllerAction(brain, { projectId: toStr(env.projectId || 'emepath'), baseUrl, userId: envUserId }, act, parsed);
     results.push(r);
@@ -3388,12 +3762,13 @@ async function autoForProject(projectId, actionDir) {
     // Ask controller to update memory/index as needed
     const baseUrl = `http://127.0.0.1:${CURRENT_PORT || 0}`;
     try {
-      await runControlOnce(LAST_BRAIN, {
+      const r = await runControlOnce(LAST_BRAIN, {
         textRaw: 'Environment changed. Update memory and index as needed. ' + msg,
         env: { projectId },
         options: { loop: false },
         baseUrl,
       });
+      publishActionEvent({ projectId, label: 'auto', text: toStr(r?.text || '') || msg });
     } catch {}
     rec.last = snap;
     rec.lastRunAt = now;
@@ -3432,20 +3807,84 @@ function makeSnippets(text, terms, context = 80, maxSnippets = 3) {
 async function scanDirToIndex(root, maxFileSize = 262144) {
   const absRoot = path.resolve(process.cwd(), root);
   if (!isDir(absRoot)) throw new Error(`scan_root_invalid: ${absRoot}`);
-  const paths = await listFilesRecursive(absRoot, null);
   const files = [];
-  for (const p of paths) {
-    try {
-      const st = fs.statSync(p);
-      if (!st.isFile()) continue;
-      if (st.size > maxFileSize) continue;
-      const txt = await readFileSafe(p);
-      files.push({ path: p, text: txt });
-    } catch {}
+  async function walk(dir) {
+    let items = [];
+    try { items = await fsp.readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const it of items) {
+      try {
+        if (it.isDirectory()) {
+          if (shouldIgnoreDir(it.name)) continue;
+          await walk(path.join(dir, it.name));
+          continue;
+        }
+        const p = path.join(dir, it.name);
+        const st = fs.statSync(p);
+        if (!st.isFile()) continue;
+        if (st.size > maxFileSize) continue;
+        const txt = await readFileSafe(p);
+        files.push({ path: p, text: txt, mtimeMs: Number(st.mtimeMs || 0), size: Number(st.size || 0), dir: path.dirname(p) });
+      } catch {}
+    }
   }
+  await walk(absRoot);
+  files.sort((a, b) => b.mtimeMs - a.mtimeMs);
   SCAN_INDEX.root = absRoot;
   SCAN_INDEX.files = files;
+  // Build directory map
+  const byDir = new Map();
+  for (const f of files) {
+    const key = path.relative(absRoot, f.dir) || '.';
+    if (!byDir.has(key)) byDir.set(key, []);
+    byDir.get(key).push(f);
+  }
+  SCAN_INDEX.byDir = byDir;
   return { root: absRoot, count: files.length };
+}
+
+// Lightweight directory structure scan (no file contents)
+async function scanDirStructure(root) {
+  const absRoot = path.resolve(process.cwd(), root);
+  if (!isDir(absRoot)) throw new Error(`scan_root_invalid: ${absRoot}`);
+  const groupsMap = new Map(); // dir -> files
+  async function walk(dir) {
+    let items = [];
+    try { items = await fsp.readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const it of items) {
+      if (it.isDirectory()) {
+        if (shouldIgnoreDir(it.name)) continue;
+        await walk(path.join(dir, it.name));
+        continue;
+      }
+      const p = path.join(dir, it.name);
+      let st;
+      try { st = fs.statSync(p); } catch { continue; }
+      if (!st.isFile()) continue;
+      const dirKey = path.relative(absRoot, path.dirname(p)) || '.';
+      if (!groupsMap.has(dirKey)) groupsMap.set(dirKey, []);
+      groupsMap.get(dirKey).push({
+        path: path.relative(absRoot, p),
+        size: Number(st.size || 0),
+        mtime: Number(st.mtimeMs || 0),
+      });
+    }
+  }
+  await walk(absRoot);
+  const groups = Array.from(groupsMap.entries()).map(([dir, files]) => ({ dir, files: files.sort((a,b)=>b.mtime - a.mtime) }));
+  // Sort groups by most recent file
+  groups.sort((a,b)=>{
+    const am = a.files && a.files.length ? a.files[0].mtime : 0;
+    const bm = b.files && b.files.length ? b.files[0].mtime : 0;
+    return bm - am;
+  });
+  return { root: absRoot, groups };
+}
+
+async function writeStructureToMemory({ projectId, userId, root, groups }) {
+  try {
+    const payload = { root, ts: new Date().toISOString(), groups };
+    db.upsertMemory(userId, projectId, 'short', 'structure', JSON.stringify(payload), 'set');
+  } catch {}
 }
 
 function queryIndex(q, k = 8) {
@@ -3483,6 +3922,62 @@ function queryIndex(q, k = 8) {
     snippets: makeSnippets(f.text, terms),
   }));
   return { root: SCAN_INDEX.root, hits };
+}
+
+async function summarizeFilesToMemory({ projectId, userId, root, max = 50 }) {
+  try {
+    if (!SCAN_INDEX.root || !Array.isArray(SCAN_INDEX.files) || !SCAN_INDEX.files.length) {
+      await scanDirToIndex(root || '.');
+    }
+    const files = (SCAN_INDEX.files || []).slice(0, Math.max(1, Number(max) || 50));
+    const out = [];
+    for (const f of files) {
+      const rel = path.relative(SCAN_INDEX.root, f.path);
+      let summary = '';
+      let dataIn = '';
+      let dataOut = '';
+      let services = '';
+      try {
+        const isCode = /\.(js|ts|py|rs|go|java|cs|rb|php|sh|bash|zsh|ts|tsx|jsx|c|cc|cpp|h|hpp)$/i.test(rel);
+        const prompt = `${isCode ? 'Summarize this code file in 2-3 sentences.' : 'Summarize this document in 1-2 sentences.'}\n\nIf it is code, infer (succinctly):\n- expected data input (parameters, file formats, APIs)\n- expected data output (return values, files, side-effects)\n- external services/libraries/protocols used (if applicable)\n\nPath: ${rel}\n---\n${(f.text || '').slice(0, 8000)}`;
+      const outMsg = await LAST_BRAIN.llm.chat({ messages: [ { role: 'user', content: prompt } ], temperature: 0.2, maxTokens: Math.min(256, getMaxTokens()) });
+        summary = toStr(outMsg?.content || '');
+        // Heuristic splits (optional):
+        const mIn = summary.match(/input[^:]*:\s*([^\n]+)/i); if (mIn) dataIn = toStr(mIn[1]);
+        const mOut = summary.match(/output[^:]*:\s*([^\n]+)/i); if (mOut) dataOut = toStr(mOut[1]);
+        const mSvc = summary.match(/services?[^:]*:\s*([^\n]+)/i); if (mSvc) services = toStr(mSvc[1]);
+      } catch (e) {
+        summary = '[summary] ' + (f.text || '').slice(0, 200).replace(/\s+/g, ' ');
+      }
+      const record = { path: rel, mtime: f.mtimeMs || 0, dir: path.relative(SCAN_INDEX.root, f.dir) || '.', size: f.size || 0, summary, dataIn, dataOut, services };
+      out.push(record);
+      try { db.upsertMemory(userId, projectId, 'short', 'files', JSON.stringify(record) + '\n', 'append'); } catch {}
+    }
+    // Compress/roll-up if too large
+    try { await compressFilesShortToLong(userId, projectId); } catch {}
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+async function compressFilesShortToLong(userId, projectId) {
+  try {
+    const short = db.getMemory(userId, projectId, 'short', 'files');
+    const text = short && short.content ? short.content : '';
+    if (!text || text.length < 16000) return;
+    // Summarize many file summaries into long memory
+    const prompt = 'Condense the following per-file summaries into a directory-wise digest with most recently updated files first. Keep it compact.\n' + text.slice(0, 48000);
+    let long = '';
+    try {
+      const out = await LAST_BRAIN.llm.chat({ messages: [ { role: 'user', content: prompt } ], temperature: 0.2, maxTokens: Math.min(768, getMaxTokens()) });
+      long = toStr(out?.content || '');
+    } catch (e) {
+      long = '[files-long] ' + text.slice(0, 4000);
+    }
+    db.upsertMemory(userId, projectId, 'long', 'files', long + '\n', 'append');
+    db.upsertMemory(userId, projectId, 'short', 'files', '', 'clear');
+  } catch {}
 }
 function isNoModelError(err) {
   const msg = toStr(err && (err.message || err));
