@@ -7,6 +7,7 @@
 import fs from 'fs';
 import fsp from 'fs/promises';
 import path from 'path';
+import os from 'os';
 
 import Brain from './brain.js';
 import db from './gateway/db/db.js';
@@ -23,9 +24,44 @@ let CURRENT_SERVER = null;
 let CURRENT_PORT = null;
 let CONSOLE_LOG_ATTACHED = false;
 const WATCH_STATE = { active: false, seconds: 0, step: '', targetPort: null };
+let STACK_PID_ID = null;
 
 // Global control flags
 const CONTROL = { paused: false };
+const DEFAULT_WORKSPACE_ID = 'default';
+
+function sanitizeActionDirValue(dir) {
+  const raw = typeof dir === 'string' ? dir.trim() : '';
+  if (!raw) return '.';
+  return raw;
+}
+
+function resolveProjectConfig(projectId, { userId = 1, workspaceId = DEFAULT_WORKSPACE_ID } = {}) {
+  const result = { actionDir: '.', record: null, memory: {} };
+  try {
+    if (typeof db.getProjectByName === 'function') {
+      const rec = db.getProjectByName(userId, workspaceId, projectId);
+      if (rec) {
+        result.record = rec;
+        if (rec.actionDir) result.actionDir = sanitizeActionDirValue(rec.actionDir);
+      }
+    }
+  } catch {}
+  try {
+    const row = db.getMemory(userId, projectId, 'short', 'config');
+    if (row && row.content) {
+      const cfg = JSON.parse(row.content);
+      if (cfg && typeof cfg === 'object') {
+        result.memory = cfg;
+        const dir = cfg.actionDir != null ? sanitizeActionDirValue(cfg.actionDir) : result.actionDir;
+        if (!result.record || !result.record.actionDir) result.actionDir = dir;
+        else result.actionDir = sanitizeActionDirValue(result.actionDir || dir);
+      }
+    }
+  } catch {}
+  result.actionDir = sanitizeActionDirValue(result.actionDir);
+  return result;
+}
 
 function toStr(x) {
   return typeof x === 'string' ? x : x == null ? '' : String(x);
@@ -431,6 +467,71 @@ async function startServer(brain, { projectId, userId, argv }) {
   // Attach console logger to file for UI terminal tail
   try { attachConsoleFileLogger(); } catch {}
 
+  const WORKSPACE_ID = DEFAULT_WORKSPACE_ID;
+  const sanitizeActionDir = sanitizeActionDirValue;
+
+  function projectConfigFromMemory(pid) {
+    const cfg = resolveProjectConfig(pid, { userId, workspaceId: WORKSPACE_ID });
+    return cfg.memory || {};
+  }
+
+  function getProjectRecord(pid) {
+    const cfg = resolveProjectConfig(pid, { userId, workspaceId: WORKSPACE_ID });
+    return cfg.record || null;
+  }
+
+  function ensureProjectRecord(pid, { actionDir = '.', active = true, description = null } = {}) {
+    const dir = sanitizeActionDir(actionDir);
+    let record = getProjectRecord(pid);
+    if (!record) {
+      try {
+        record = db.createProject(userId, WORKSPACE_ID, {
+          name: pid,
+          description,
+          active,
+          actionDir: dir,
+        });
+      } catch (e) {
+        const msg = String(e?.message || e || '');
+        if (/UNIQUE constraint failed/i.test(msg)) {
+          record = getProjectRecord(pid);
+        } else {
+          throw e;
+        }
+      }
+    } else {
+      if (dir && record.actionDir !== dir && typeof db.updateProjectActionDir === 'function') {
+        record = db.updateProjectActionDir(userId, WORKSPACE_ID, pid, dir) || {
+          ...record,
+          actionDir: dir,
+        };
+      }
+      if (active && record && !record.active) {
+        record = db.setProjectActive(userId, WORKSPACE_ID, record.id, true) || record;
+      }
+    }
+    return record;
+  }
+
+  function removeProjectRecord(pid) {
+    if (typeof db.deleteProject !== 'function') return false;
+    return db.deleteProject(userId, WORKSPACE_ID, pid);
+  }
+
+  function getProjectConfig(pid) {
+    const cfg = resolveProjectConfig(pid, { userId, workspaceId: WORKSPACE_ID });
+    let record = cfg.record || null;
+    const actionDir = sanitizeActionDir(cfg.actionDir || '.');
+    if (!record) {
+      try {
+        record = ensureProjectRecord(pid, { actionDir });
+      } catch {}
+    }
+    return { actionDir, record, memory: cfg.memory || {} };
+  }
+
+  try { ensureProjectRecord(projectId, { actionDir: '.' }); } catch {}
+
   // Load persisted agents (best-effort)
   try { await loadAgentsState(userId, projectId, brain); } catch {}
 
@@ -721,7 +822,7 @@ async function startServer(brain, { projectId, userId, argv }) {
       if (auto && Array.isArray(parsed.actions) && parsed.actions.length) {
         for (const act of parsed.actions) {
           try {
-            const r = await runControllerAction(brain, { projectId: pid, baseUrl }, act, parsed);
+            const r = await runControllerAction(brain, { projectId: pid, baseUrl, userId }, act, parsed);
             actionResults.push(r);
           } catch (e) {
             actionResults.push({ tool: String(act?.tool || 'unknown'), ok: false, error: toStr(e?.message || e) });
@@ -866,7 +967,7 @@ async function startServer(brain, { projectId, userId, argv }) {
       const results = [];
       let job = null;
       for (const act of actions) {
-        const r = await runControllerAction(brain, { projectId, baseUrl }, act, parsed);
+        const r = await runControllerAction(brain, { projectId, baseUrl, userId }, act, parsed);
         results.push(r);
         if (r && r.job && !job) job = r.job;
       }
@@ -919,6 +1020,33 @@ async function startServer(brain, { projectId, userId, argv }) {
       const personalPath = path.resolve(process.cwd(), 'data', 'training', `personal.${String(pid).replace(/[^a-zA-Z0-9_.-]+/g, '_')}.jsonl`);
       const exists = fs.existsSync(personalPath);
       res.json({ ok: true, short: { size: short?.content?.length || 0, updatedAt: short?.updatedAt || null }, long: { size: long?.content?.length || 0, updatedAt: long?.updatedAt || null }, agents: { size: agentsSnap?.content?.length || 0, updatedAt: agentsSnap?.updatedAt || null }, personalization: { path: personalPath, exists } });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
+    }
+  });
+
+  // Project configuration
+  app.get('/projects/:id/config', (req, res) => {
+    try {
+      const projectId = String(req.params.id || '').trim();
+      if (!projectId) return res.status(400).json({ ok: false, error: 'projectId required' });
+      const cfg = getProjectConfig(projectId);
+      const config = { ...(cfg.memory || {}), actionDir: cfg.actionDir };
+      res.json({ ok: true, config, project: cfg.record || null });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
+    }
+  });
+  app.put('/projects/:id/config', async (req, res) => {
+    try {
+      const projectId = String(req.params.id || '').trim();
+      if (!projectId) return res.status(400).json({ ok: false, error: 'projectId required' });
+      const body = req.body || {};
+      const actionDir = sanitizeActionDir(body.actionDir || '.');
+      const config = { ...(projectConfigFromMemory(projectId)), actionDir };
+      db.upsertMemory(userId, projectId, 'short', 'config', JSON.stringify(config), 'set');
+      const record = ensureProjectRecord(projectId, { actionDir });
+      res.json({ ok: true, config, project: record || null });
     } catch (e) {
       res.status(500).json({ ok: false, error: toStr(e?.message || e) });
     }
@@ -1006,9 +1134,59 @@ async function startServer(brain, { projectId, userId, argv }) {
   });
 
   // Projects and status
-  app.get('/projects', (_req, res) => {
-    const list = listProjectsStatus();
+  app.get('/projects', async (_req, res) => {
+    const list = await listProjectsStatus();
     res.json({ ok: true, projects: list });
+  });
+  app.post('/projects', async (req, res) => {
+    try {
+      const body = req.body || {};
+      const projectId = String(body.projectId || body.name || '').trim();
+      if (!projectId) return res.status(400).json({ ok: false, error: 'projectId required' });
+      if (!/^[a-zA-Z0-9_-]+$/.test(projectId)) return res.status(400).json({ ok: false, error: 'invalid projectId: letters, numbers, underscore, dash only' });
+      const sessionUserId = Number(body.userId || userId) || userId;
+      const actionDir = sanitizeActionDir(body.actionDir || '.');
+      const brain = LAST_BRAIN;
+      if (!brain) return res.status(500).json({ ok: false, error: 'brain not initialized' });
+      let record = null;
+      try {
+        record = ensureProjectRecord(projectId, { actionDir, active: true });
+      } catch (e) {
+        return res.status(500).json({ ok: false, error: toStr(e?.message || e) });
+      }
+      const sid = brain.createSession({ userId: sessionUserId, projectId });
+      const config = { actionDir };
+      db.upsertMemory(userId, projectId, 'short', 'config', JSON.stringify(config), 'set');
+      const list = await listProjectsStatus();
+      res.json({ ok: true, projectId, sessionId: sid, projects: list, project: record || null });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
+    }
+  });
+  app.delete('/projects/:id', async (req, res) => {
+    try {
+      const projectId = String(req.params.id || '').trim();
+      if (!projectId) return res.status(400).json({ ok: false, error: 'projectId required' });
+      const brain = LAST_BRAIN;
+      if (!brain) return res.status(500).json({ ok: false, error: 'brain not initialized' });
+      // Remove from brain projects
+      if (brain.projects) brain.projects.delete(projectId);
+      // Remove agents for this project
+      const agentsToDelete = [];
+      if (brain.agents) {
+        for (const [id, a] of brain.agents) {
+          if (String(a.projectId) === projectId) agentsToDelete.push(id);
+        }
+        for (const id of agentsToDelete) brain.agents.delete(id);
+      }
+      persistAgentsState(null, projectId, brain);
+      try { removeProjectRecord(projectId); } catch {}
+      try { db.deleteMemory(userId, projectId, 'short', 'config'); } catch {}
+      const list = await listProjectsStatus();
+      res.json({ ok: true, removed: projectId, projects: list });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
+    }
   });
   app.get('/status', (req, res) => {
     const pid = toStr(req.query?.project || '');
@@ -1211,6 +1389,37 @@ async function startServer(brain, { projectId, userId, argv }) {
   const port = await pickPort(server, { portStart, portEnd, explicitPort });
   await new Promise((resolve) => server.listen(port, resolve));
   console.log(`[emepath] listening on :${port}`);
+  const instanceRole = (process.env.EMEPATH_WATCH_CHILD || '0') === '1' ? 'watch-child' : 'primary';
+  try {
+    STACK_PID_ID = db.setStackPid('emepath', process.pid, {
+      role: instanceRole,
+      tag: 'emepath',
+      port,
+      command: process.argv[1] || process.execPath,
+      args: process.argv.slice(2),
+      cwd: process.cwd(),
+      user: process.env.USER || process.env.LOGNAME || null,
+      meta: {
+        hostname: os.hostname(),
+        portRange: { start: portStart, end: portEnd },
+        watchChild: instanceRole === 'watch-child',
+        explicitPort: explicitPort || null,
+      },
+    });
+  } catch (e) {
+    console.warn('[stack] failed to register pid:', String(e?.message || e));
+  }
+  const releaseStackPid = () => {
+    try {
+      if (STACK_PID_ID && typeof db.removeStackPid === 'function') {
+        db.removeStackPid(STACK_PID_ID);
+      } else if (typeof db.removeStackPidByPid === 'function') {
+        db.removeStackPidByPid(process.pid);
+      }
+    } catch {}
+    STACK_PID_ID = null;
+  };
+  process.once('exit', releaseStackPid);
   CURRENT_SERVER = server;
   CURRENT_PORT = port;
 
@@ -1293,7 +1502,8 @@ function enqueue(fn, meta) {
   return job;
 }
 
-function enqueueKindAware(brain, { userId = null, projectId, agents, checklist, baseUrl }) {
+function enqueueKindAware(brain, { userId: userIdOverride = null, projectId, agents, checklist, baseUrl }) {
+  const effectiveUserId = userIdOverride ?? userId;
   const job = enqueue(async () => {
     // Enforce checklist before agents
     await enforceChecklist(checklist);
@@ -1301,9 +1511,9 @@ function enqueueKindAware(brain, { userId = null, projectId, agents, checklist, 
     for (const a of agents) {
       const k = toStr(a.kind).toLowerCase();
       if (k === 'distill') {
-        await executeDistillAgent(brain, projectId, a, { baseUrl });
+        await executeDistillAgent(brain, projectId, a, { baseUrl, userId: effectiveUserId });
       } else if (k === 'scan') {
-        await executeScanAgent(brain, projectId, a);
+        await executeScanAgent(brain, projectId, a, { userId: effectiveUserId });
       } else if (k === 'query') {
         await executeQueryAgent(brain, projectId, a);
       } else {
@@ -1312,7 +1522,7 @@ function enqueueKindAware(brain, { userId = null, projectId, agents, checklist, 
     }
     // Enforce checklist after agents (e.g., run tests)
     await enforceChecklist(checklist);
-  }, { userId, projectId, count: agents.length });
+  }, { userId: effectiveUserId, projectId, count: agents.length });
   return job;
 }
 
@@ -1370,9 +1580,14 @@ async function runLint() {
   }
 }
 
-async function executeDistillAgent(brain, projectId, agent, { baseUrl }) {
+async function executeDistillAgent(brain, projectId, agent, { baseUrl, userId = 1 } = {}) {
   // Parse input -> paths or raw content
   const parsed = parseDistillInput(agent.input);
+  const cfg = resolveProjectConfig(projectId, {
+    userId,
+    workspaceId: DEFAULT_WORKSPACE_ID,
+  });
+  const configActionDir = sanitizeActionDirValue(cfg.actionDir || '.');
   const standards = await readStandards();
   const outDir = path.resolve(process.cwd(), 'data', 'training');
   await ensureDir(outDir);
@@ -1383,7 +1598,7 @@ async function executeDistillAgent(brain, projectId, agent, { baseUrl }) {
   if (parsed.paths && parsed.paths.length) {
     const files = [];
     for (const p of parsed.paths) {
-      const abs = path.resolve(process.cwd(), p);
+      const abs = path.resolve(configActionDir, p);
       if (isFile(abs)) files.push(abs);
       else if (isDir(abs)) {
         const more = await listFilesRecursive(abs, ['.md', '.txt', '.json', '.jsonl']);
@@ -1411,13 +1626,18 @@ async function executeDistillAgent(brain, projectId, agent, { baseUrl }) {
   agentLog(projectId, `[${agent.id}] distill complete -> ${outFile}`);
 }
 
-async function executeScanAgent(brain, projectId, agent) {
+async function executeScanAgent(brain, projectId, agent, { userId = 1 } = {}) {
   // input JSON: { root: string, maxFileSize?: number }
   try {
     agentLog(projectId, `[${agent.id}] execute scan`);
     let j = null;
     try { j = JSON.parse(toStr(agent.input)); } catch {}
-    const root = toStr(j?.root || agent.input || '');
+    const cfg = resolveProjectConfig(projectId, {
+      userId,
+      workspaceId: DEFAULT_WORKSPACE_ID,
+    });
+    const configActionDir = sanitizeActionDirValue(cfg.actionDir || '.');
+    const root = path.resolve(configActionDir, toStr(j?.root || agent.input || ''));
     const maxFileSize = Number(j?.maxFileSize || process.env.SCAN_MAX_FILE || '262144') || 262144;
     const r = await scanDirToIndex(root, maxFileSize);
     brain.checkIn(agent.id, 'done', { note: `scan ok root=${r.root} files=${r.count}`, eotsDelta: 1 });
@@ -1454,16 +1674,17 @@ async function executeQueryAgent(brain, projectId, agent) {
 async function executeBootstrapLoRA(brain, projectId, args = {}) {
   // Bootstrap: scan sources, distill dataset, optionally prepare training command.
   const sources = Array.isArray(args.sources) && args.sources.length ? args.sources : ['.', 'documents', 'docs'];
+  const effectiveUserId = Number(args.userId || 1) || 1;
   // Scan
   const scanAgent = brain._spawnAgent({ projectId, goal: 'Bootstrap: scan sources', input: JSON.stringify({ root: sources[0] }), expected: 'index ready' });
-  await executeScanAgent(brain, projectId, { ...scanAgent, kind: 'scan' });
+  await executeScanAgent(brain, projectId, { ...scanAgent, kind: 'scan' }, { userId: effectiveUserId });
   // Distill
   const distillAgent = brain._spawnAgent({ projectId, goal: 'Bootstrap: distill sources', input: JSON.stringify({ files: sources }), expected: 'JSONL dataset' });
   // Use effective default model config rather than env-only check
   let hasEffectiveModel = false;
   try { const eff = brain._defaultModelConfig(); hasEffectiveModel = !!String(eff?.model_path || '').trim(); } catch { hasEffectiveModel = false; }
   if (hasEffectiveModel) {
-    await executeDistillAgent(brain, projectId, { ...distillAgent, kind: 'distill' }, { baseUrl: '' });
+    await executeDistillAgent(brain, projectId, { ...distillAgent, kind: 'distill' }, { baseUrl: '', userId: effectiveUserId });
   } else {
     // Create a placeholder dataset plan instead of running LLM distillation
     const outDir = path.resolve(process.cwd(), 'data', 'training');
@@ -1571,16 +1792,65 @@ function renderStatusText(status) {
   return lines.join('\n');
 }
 
-function listProjectsStatus() {
-  const brain = LAST_BRAIN;
-  const set = new Set();
-  if (brain) {
-    for (const a of brain.agents.values()) set.add(String(a.projectId));
-    for (const [pid] of brain.projects) set.add(String(pid));
+  async function listProjectsStatus() {
+    const brain = LAST_BRAIN;
+    const names = new Set();
+    const recordsByName = new Map();
+
+    try {
+      const rows = db.listProjects(userId, WORKSPACE_ID, {});
+      for (const rec of Array.isArray(rows) ? rows : []) {
+        const key = String(rec.name);
+        recordsByName.set(key, rec);
+        names.add(key);
+      }
+    } catch {}
+
+    if (brain) {
+      if (brain.agents) {
+        for (const a of brain.agents.values()) names.add(String(a.projectId));
+      }
+      if (brain.projects) {
+        for (const [pid] of brain.projects) names.add(String(pid));
+      }
+    }
+
+    names.add(String(projectId));
+
+    const ordered = Array.from(names)
+      .map((n) => String(n || '').trim())
+      .filter((n) => n.length > 0)
+      .sort((a, b) => a.localeCompare(b));
+
+    const results = [];
+    for (const pid of ordered) {
+      let record = recordsByName.get(pid) || getProjectRecord(pid);
+      const memCfg = projectConfigFromMemory(pid);
+      let actionDir = record?.actionDir || memCfg.actionDir || '.';
+      actionDir = sanitizeActionDir(actionDir);
+
+      if (!record) {
+        try {
+          record = ensureProjectRecord(pid, { actionDir });
+        } catch {}
+      } else if (record.actionDir !== actionDir) {
+        try {
+          record = ensureProjectRecord(pid, { actionDir, active: record.active });
+        } catch {}
+      }
+
+      const config = { ...memCfg, actionDir };
+      const status = gatherStatus(pid);
+      results.push({
+        projectId: pid,
+        status,
+        config,
+        active: record ? Boolean(record.active) : true,
+        project: record || null,
+      });
+    }
+    return results;
   }
-  const arr = Array.from(set);
-  return arr.map((pid) => ({ projectId: pid, status: gatherStatus(pid) }));
-}
 
 function agentsSnapshot(brain, projectId) {
   const list = [];
@@ -2456,11 +2726,69 @@ async function doRollingRestart({ portStart, portEnd, currentPort, argv }) {
     const newPort = await findAltPort(currentPort, portStart, portEnd);
     WATCH_STATE.step = 'staging'; WATCH_STATE.targetPort = newPort;
     console.log(`[watch] change detected — starting new instance on :${newPort}`);
-    const childA = spawn(process.execPath, [process.argv[1], '--server', '--port', String(newPort), '--portStart', String(portStart), '--portEnd', String(portEnd)], { env: { ...process.env, EMEPATH_WATCH_CHILD: '1' }, stdio: 'inherit' });
+    const childA = spawn(
+      process.execPath,
+      [
+        process.argv[1],
+        '--server',
+        '--port',
+        String(newPort),
+        '--portStart',
+        String(portStart),
+        '--portEnd',
+        String(portEnd),
+      ],
+      { env: { ...process.env, EMEPATH_WATCH_CHILD: '1' }, stdio: 'inherit' }
+    );
+    let watchChildId = null;
+    try {
+      watchChildId = db.setStackPid('emepath', childA.pid, {
+        role: 'watch-blue',
+        tag: 'emepath',
+        port: newPort,
+        command: process.execPath,
+        args: childA.spawnargs || [],
+        cwd: process.cwd(),
+        user: process.env.USER || process.env.LOGNAME || null,
+        meta: {
+          hostname: os.hostname(),
+          watcher: true,
+          phase: 'staging',
+          targetPort: currentPort,
+          stagedPort: newPort,
+        },
+      });
+    } catch (e) {
+      console.warn('[watch] failed to register blue instance pid:', String(e?.message || e));
+    }
+    childA.once('exit', () => {
+      try {
+        if (watchChildId && typeof db.removeStackPid === 'function') db.removeStackPid(watchChildId);
+        else if (typeof db.removeStackPidByPid === 'function') db.removeStackPidByPid(childA.pid);
+      } catch {}
+    });
     const okA = await waitHealth(newPort, 20000);
     if (!okA) { console.warn('[watch] new instance failed health'); try { childA.kill(); } catch {}; return; }
     // Switch: stop current server, then delegate full restart to npm scripts
     WATCH_STATE.step = 'switching';
+    try {
+      db.setStackPid('emepath', childA.pid, {
+        role: 'watch-blue',
+        tag: 'emepath',
+        port: newPort,
+        command: process.execPath,
+        args: childA.spawnargs || [],
+        cwd: process.cwd(),
+        user: process.env.USER || process.env.LOGNAME || null,
+        meta: {
+          hostname: os.hostname(),
+          watcher: true,
+          phase: 'switching',
+          targetPort: currentPort,
+          stagedPort: newPort,
+        },
+      });
+    } catch {}
     await gracefulClose(CURRENT_SERVER, 5000);
     console.log(`[watch] delegating restart via npm (target original :${currentPort})`);
     try {
@@ -2608,7 +2936,7 @@ async function evaluateRequirements(reqs) {
   return out;
 }
 
-async function runControllerAction(brain, { projectId, baseUrl }, action, parsed) {
+async function runControllerAction(brain, { projectId, baseUrl, userId = 1 }, action, parsed) {
   const tool = toStr(action?.tool || '').toLowerCase();
   const args = action?.args || {};
   if (tool === 'update_user') {
@@ -2622,7 +2950,7 @@ async function runControllerAction(brain, { projectId, baseUrl }, action, parsed
   }
   if (tool === 'bootstrap_lora') {
     try {
-      const job = await executeBootstrapLoRA(brain, projectId, args);
+      const job = await executeBootstrapLoRA(brain, projectId, { ...args, userId });
       return { tool, ok: true, job: job ? { id: job.id, status: job.status } : null };
     } catch (e) {
       return { tool, ok: false, error: toStr(e?.message || e) };
@@ -2674,19 +3002,19 @@ async function runControllerAction(brain, { projectId, baseUrl }, action, parsed
     const background = !!args.background;
     if (kind === 'distill') {
       const ag = brain._spawnAgent({ projectId, goal: 'controller-distill', input: toStr(args.input || ''), expected: 'JSONL' });
-      const job = enqueueKindAware(brain, { userId: null, projectId, agents: [{ ...ag, kind: 'distill' }], checklist: parsed.checklist || [], baseUrl });
+      const job = enqueueKindAware(brain, { userId, projectId, agents: [{ ...ag, kind: 'distill' }], checklist: parsed.checklist || [], baseUrl });
       if (!background) await job.awaitDone();
       return { tool, ok: true, job: { id: job.id, status: job.status } };
     }
     if (kind === 'scan') {
       const ag = brain._spawnAgent({ projectId, goal: 'controller-scan', input: toStr(args.input || ''), expected: 'index ready' });
-      const job = enqueueKindAware(brain, { userId: null, projectId, agents: [{ ...ag, kind: 'scan' }], checklist: parsed.checklist || [], baseUrl });
+      const job = enqueueKindAware(brain, { userId, projectId, agents: [{ ...ag, kind: 'scan' }], checklist: parsed.checklist || [], baseUrl });
       if (!background) await job.awaitDone();
       return { tool, ok: true, job: { id: job.id, status: job.status } };
     }
     if (kind === 'query') {
       const ag = brain._spawnAgent({ projectId, goal: 'controller-query', input: toStr(args.input || ''), expected: 'hits json' });
-      const job = enqueueKindAware(brain, { userId: null, projectId, agents: [{ ...ag, kind: 'query' }], checklist: parsed.checklist || [], baseUrl });
+      const job = enqueueKindAware(brain, { userId, projectId, agents: [{ ...ag, kind: 'query' }], checklist: parsed.checklist || [], baseUrl });
       if (!background) await job.awaitDone();
       return { tool, ok: true, job: { id: job.id, status: job.status } };
     }
@@ -2728,6 +3056,7 @@ async function runControlOnce(brain, { textRaw, env = {}, options = {}, baseUrl 
   const contract = getPrompt('contracts.json_object_strict') || '';
   const toolsSpec = buildToolsSpec(baseUrl);
   const system = composeSystem('emepath.controller.system', { toolsSpec, contract });
+  const envUserId = Number(env.userId || 1) || 1;
   const userMsg = [
     `Env: ${JSON.stringify(env)}`,
     `Input: ${textRaw}`,
@@ -2756,7 +3085,7 @@ async function runControlOnce(brain, { textRaw, env = {}, options = {}, baseUrl 
   const results = [];
   let job = null;
   for (const act of Array.isArray(parsed.actions) ? parsed.actions : []) {
-    const r = await runControllerAction(brain, { projectId: toStr(env.projectId || 'emepath'), baseUrl }, act, parsed);
+    const r = await runControllerAction(brain, { projectId: toStr(env.projectId || 'emepath'), baseUrl, userId: envUserId }, act, parsed);
     results.push(r);
     if (r && r.job && !job) job = r.job;
   }

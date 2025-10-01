@@ -45,6 +45,79 @@ function ensureColumn(dbInst, table, column, type) {
   }
 }
 
+function ensureStackPidSchema() {
+  let cols = [];
+  try {
+    cols = db.prepare('PRAGMA table_info(stack_pids)').all();
+  } catch {
+    cols = [];
+  }
+  const hasTable = cols.length > 0;
+  const hasId = cols.some((c) => c.name === 'id');
+  const hasMeta = cols.some((c) => c.name === 'meta_json');
+  const hasUpdated = cols.some((c) => c.name === 'updated_at');
+  const hasPort = cols.some((c) => c.name === 'port');
+  if (!hasTable) {
+    try {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS stack_pids (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          pid INTEGER NOT NULL,
+          port INTEGER,
+          role TEXT,
+          tag TEXT,
+          command TEXT,
+          args TEXT,
+          cwd TEXT,
+          user TEXT,
+          meta_json TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_stack_pids_name ON stack_pids(name);
+        CREATE INDEX IF NOT EXISTS idx_stack_pids_pid ON stack_pids(pid);
+      `);
+    } catch (e) {
+      console.error('[db] ensureStackPidSchema create failed:', String(e?.message || e));
+    }
+    return;
+  }
+  if (hasId && hasMeta && hasUpdated && hasPort) return;
+  try {
+    db.exec(`
+      BEGIN TRANSACTION;
+      CREATE TABLE IF NOT EXISTS stack_pids_tmp (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        pid INTEGER NOT NULL,
+        port INTEGER,
+        role TEXT,
+        tag TEXT,
+        command TEXT,
+        args TEXT,
+        cwd TEXT,
+        user TEXT,
+        meta_json TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT OR IGNORE INTO stack_pids_tmp (id, name, pid, created_at)
+      SELECT 'legacy:' || name || ':' || pid, name, pid, COALESCE(created_at, CURRENT_TIMESTAMP)
+      FROM stack_pids;
+      DROP TABLE IF EXISTS stack_pids;
+      ALTER TABLE stack_pids_tmp RENAME TO stack_pids;
+      CREATE INDEX IF NOT EXISTS idx_stack_pids_name ON stack_pids(name);
+      CREATE INDEX IF NOT EXISTS idx_stack_pids_pid ON stack_pids(pid);
+      COMMIT;
+    `);
+  } catch (e) {
+    console.error('[db] ensureStackPidSchema failed:', String(e?.message || e));
+  }
+}
+
+ensureStackPidSchema();
+
 // Only perform migrations/bootstrap when using test DB or when the persistent DB did not exist
 let needInit = isTest || !existedBefore;
 // If DB file exists but tables are missing (corrupted/partial), force init
@@ -647,6 +720,7 @@ function mapProjectRow(row) {
     name: row.name,
     description: row.description ?? null,
     active: Boolean(row.active),
+    actionDir: row.action_dir || '.',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -655,15 +729,15 @@ function mapProjectRow(row) {
 export function createProject(
   userId,
   workspaceId,
-  { name, description = null, active = true }
+  { name, description = null, active = true, actionDir = '.' }
 ) {
   const act = active ? 1 : 0;
   const info = run(
-    `INSERT INTO projects (user_id, workspace_id, name, description, active) VALUES (?, ?, ?, ?, ?)`,
-    [userId, String(workspaceId || 'default'), String(name), description, act]
+    `INSERT INTO projects (user_id, workspace_id, name, description, active, action_dir) VALUES (?, ?, ?, ?, ?, ?)`,
+    [userId, String(workspaceId || 'default'), String(name), description, act, String(actionDir || '.')]
   );
   const row = get(
-    `SELECT id, user_id, workspace_id, name, description, active, created_at, updated_at FROM projects WHERE id = ?`,
+    `SELECT id, user_id, workspace_id, name, description, active, action_dir, created_at, updated_at FROM projects WHERE id = ?`,
     [info.lastInsertRowid]
   );
   return mapProjectRow(row);
@@ -671,7 +745,7 @@ export function createProject(
 
 export function listProjects(userId, workspaceId, { active } = {}) {
   const args = [userId, String(workspaceId || 'default')];
-  let sql = `SELECT id, user_id, workspace_id, name, description, active, created_at, updated_at FROM projects WHERE user_id = ? AND workspace_id = ?`;
+  let sql = `SELECT id, user_id, workspace_id, name, description, active, action_dir, created_at, updated_at FROM projects WHERE user_id = ? AND workspace_id = ?`;
   if (typeof active === 'boolean') {
     sql += ' AND active = ?';
     args.push(active ? 1 : 0);
@@ -689,10 +763,53 @@ export function setProjectActive(userId, workspaceId, id, active) {
   );
   if (!info || !info.changes) return null;
   const row = get(
-    `SELECT id, user_id, workspace_id, name, description, active, created_at, updated_at FROM projects WHERE id = ?`,
+    `SELECT id, user_id, workspace_id, name, description, active, action_dir, created_at, updated_at FROM projects WHERE id = ?`,
     [id]
   );
   return mapProjectRow(row);
+}
+
+export function getProjectByName(userId, workspaceId, name) {
+  try {
+    const row = get(
+      `SELECT id, user_id, workspace_id, name, description, active, action_dir, created_at, updated_at
+       FROM projects WHERE user_id = ? AND workspace_id = ? AND name = ? LIMIT 1`,
+      [userId, String(workspaceId || 'default'), String(name)]
+    );
+    return mapProjectRow(row);
+  } catch {
+    return null;
+  }
+}
+
+export function updateProjectActionDir(userId, workspaceId, name, actionDir = '.') {
+  const workspace = String(workspaceId || 'default');
+  const dir = String(actionDir || '.').trim() || '.';
+  try {
+    const info = run(
+      `UPDATE projects SET action_dir = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND workspace_id = ? AND name = ?`,
+      [dir, userId, workspace, String(name)]
+    );
+    if (!info || !info.changes) return null;
+    return getProjectByName(userId, workspaceId, name);
+  } catch (e) {
+    console.error('[db] updateProjectActionDir failed:', String(e?.message || e));
+    return null;
+  }
+}
+
+export function deleteProject(userId, workspaceId, name) {
+  const workspace = String(workspaceId || 'default');
+  try {
+    const info = run(
+      `DELETE FROM projects WHERE user_id = ? AND workspace_id = ? AND name = ?`,
+      [userId, workspace, String(name)]
+    );
+    return Boolean(info?.changes);
+  } catch (e) {
+    console.error('[db] deleteProject failed:', String(e?.message || e));
+    return false;
+  }
 }
 
 export default {
@@ -713,6 +830,9 @@ export default {
   createProject,
   listProjects,
   setProjectActive,
+  getProjectByName,
+  updateProjectActionDir,
+  deleteProject,
   upsertAgentState,
   deleteAgentState,
   listAgentStates,
@@ -723,7 +843,11 @@ export default {
   clearChatMessages,
   setStackPid,
   getStackPid,
+  getStackPidRow,
   getAllStackPids,
+  removeStackPid,
+  removeStackPidByPid,
+  removeStackPidByName,
   clearStackPids,
   run,
   get,
@@ -824,21 +948,111 @@ export function clearChatMessages(userId, workspaceId) {
 
 // ---------- Stack PIDs ----------
 
-export function setStackPid(name, pid) {
-  if (!name || !pid || !Number.isFinite(pid)) return false;
+function mapStackPidRow(row) {
+  if (!row) return null;
+  let args = null;
+  if (row.args) {
+    try {
+      args = JSON.parse(row.args);
+    } catch {
+      args = row.args;
+    }
+  }
+  let meta = null;
+  if (row.meta_json) {
+    try {
+      meta = JSON.parse(row.meta_json);
+    } catch {
+      meta = null;
+    }
+  }
+  return {
+    id: row.id,
+    name: row.name,
+    pid: Number.isFinite(row.pid) ? Number(row.pid) : null,
+    port: row.port == null ? null : Number(row.port),
+    role: row.role || null,
+    tag: row.tag || null,
+    command: row.command || null,
+    args,
+    cwd: row.cwd || null,
+    user: row.user || null,
+    meta,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+  };
+}
+
+export function setStackPid(name, pid, meta = {}) {
+  if (!name || !pid || !Number.isFinite(pid)) return null;
+  const id = String(meta.id || `${String(name)}:${Number(pid)}`);
+  const portVal = meta.port == null ? null : Number(meta.port);
+  const port = Number.isFinite(portVal) ? Number(portVal) : null;
+  const role = meta.role ? String(meta.role) : null;
+  const tag = meta.tag ? String(meta.tag) : null;
+  const command = meta.command ? String(meta.command) : null;
+  const args = meta.args != null ? JSON.stringify(meta.args) : null;
+  const cwd = meta.cwd ? String(meta.cwd) : null;
+  const user = meta.user ? String(meta.user) : null;
+  const metaJson = meta.meta ? JSON.stringify(meta.meta) : null;
   try {
-    run(`INSERT OR REPLACE INTO stack_pids (name, pid, created_at) VALUES (?, ?, COALESCE((SELECT created_at FROM stack_pids WHERE name = ?), CURRENT_TIMESTAMP))`, [String(name), pid, String(name)]);
-    return true;
+    run(
+      `INSERT INTO stack_pids (id, name, pid, port, role, tag, command, args, cwd, user, meta_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM stack_pids WHERE id = ?), CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         pid = excluded.pid,
+         port = excluded.port,
+         role = excluded.role,
+         tag = excluded.tag,
+         command = excluded.command,
+         args = excluded.args,
+         cwd = excluded.cwd,
+         user = excluded.user,
+         meta_json = excluded.meta_json,
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        id,
+        String(name),
+        Number(pid),
+        port,
+        role,
+        tag,
+        command,
+        args,
+        cwd,
+        user,
+        metaJson,
+        id,
+      ]
+    );
+    return id;
   } catch (e) {
     console.error('[db] setStackPid failed:', String(e?.message || e));
-    return false;
+    return null;
   }
 }
 
 export function getStackPid(name) {
   try {
-    const row = get(`SELECT pid FROM stack_pids WHERE name = ? LIMIT 1`, [String(name || '')]);
+    const row = get(
+      `SELECT pid FROM stack_pids WHERE name = ? ORDER BY datetime(updated_at) DESC LIMIT 1`,
+      [String(name || '')]
+    );
     return row?.pid || null;
+  } catch {
+    return null;
+  }
+}
+
+export function getStackPidRow(name) {
+  try {
+    const row = get(
+      `SELECT id, name, pid, port, role, tag, command, args, cwd, user, meta_json, created_at, updated_at
+       FROM stack_pids WHERE name = ? ORDER BY datetime(updated_at) DESC LIMIT 1`,
+      [String(name || '')]
+    );
+    return mapStackPidRow(row);
   } catch {
     return null;
   }
@@ -846,13 +1060,44 @@ export function getStackPid(name) {
 
 export function getAllStackPids() {
   try {
-    const rows = all(`SELECT name, pid FROM stack_pids ORDER BY name`, []);
-    return rows.reduce((acc, row) => {
-      acc[row.name] = row.pid;
-      return acc;
-    }, {});
+    const rows = all(
+      `SELECT id, name, pid, port, role, tag, command, args, cwd, user, meta_json, created_at, updated_at
+       FROM stack_pids ORDER BY datetime(created_at) ASC`,
+      []
+    );
+    return rows.map(mapStackPidRow);
   } catch {
-    return {};
+    return [];
+  }
+}
+
+export function removeStackPid(id) {
+  if (!id) return false;
+  try {
+    run(`DELETE FROM stack_pids WHERE id = ?`, [String(id)]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function removeStackPidByPid(pid) {
+  if (!pid || !Number.isFinite(pid)) return false;
+  try {
+    run(`DELETE FROM stack_pids WHERE pid = ?`, [Number(pid)]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function removeStackPidByName(name) {
+  if (!name) return false;
+  try {
+    run(`DELETE FROM stack_pids WHERE name = ?`, [String(name)]);
+    return true;
+  } catch {
+    return false;
   }
 }
 

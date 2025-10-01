@@ -12,7 +12,9 @@ function isNearBottom(el, threshold = 40){
 }
 
 // Projects
-async function loadProjects(){ const r=await fetch('/projects'); const j=await r.json(); const el=document.getElementById('projects'); el.innerHTML=''; (j.projects||[]).forEach(p=>{ const d=document.createElement('div'); d.className='pCard'; d.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between"><div><div style="font-weight:700">'+p.projectId+'</div><div style="margin-top:4px"><span class="stat">pending '+(p.status.counts.pending||0)+'</span><span class="stat">running '+(p.status.counts.running||0)+'</span><span class="stat">done '+(p.status.counts.done||0)+'</span></div></div><div>'+statusPill(p.status.queue.paused?'paused':'active')+'</div></div>'; d.onclick=()=>{currentProject=p.projectId; loadAll();}; el.appendChild(d); }); document.getElementById('projTitle').textContent='Flow — '+currentProject; }
+async function loadProjects(){ const r=await fetch('/projects'); const j=await r.json(); const el=document.getElementById('projects'); el.innerHTML=''; (j.projects||[]).forEach(p=>{ const actionDir=(p.config&&p.config.actionDir)||'.'; const status=p.status||{}; const counts=status.counts||{}; const queue=status.queue||{}; const stateLabel=p.active===false?'inactive':(queue.paused?'paused':'active'); const d=document.createElement('div'); d.className='pCard'; d.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between"><div><div style="font-weight:700">'+p.projectId+'</div><div style="margin-top:4px"><span class="stat" title="Click to edit actionDir" style="cursor:pointer" onclick="editActionDir(this,\''+p.projectId+'\')"><u>actionDir:</u> '+actionDir+'</span><span class="stat">pending '+(counts.pending||0)+'</span><span class="stat">running '+(counts.running||0)+'</span><span class="stat">done '+(counts.done||0)+'</span></div></div><div style="display:flex;gap:4px"><button class="btn sm delBtn" data-id="'+p.projectId+'">×</button><div class="status">'+statusPill(stateLabel)+'</div></div></div>'; d.onclick=(e)=>{if(!e.target.classList.contains('delBtn')){currentProject=p.projectId; loadAll();}}; el.appendChild(d); }); el.querySelectorAll('.delBtn').forEach(btn=>{btn.onclick=async(e)=>{e.stopPropagation();const projectId=btn.getAttribute('data-id');if(!confirm('Delete project "'+projectId+'"? This will remove all agents and data for this project.'))return;try{await fetch('/projects/'+projectId,{method:'DELETE'});await loadProjects();}catch(err){console.error(err);}}}); document.getElementById('projTitle').textContent='Flow — '+currentProject; }
+
+function editActionDir(elem, projectId){ const currentText=elem.textContent.replace(/^.*?actionDir:\s*/,''); const newDir=prompt('New action directory:', currentText); if(newDir!==null && newDir.trim()!=='' && newDir!==currentText){ fetch('/projects/'+encodeURIComponent(projectId)+'/config',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({actionDir:newDir.trim()})}).then(r=>r.json()).then(j=>{if(j.ok){loadProjects();}else{alert('Error updating actionDir');}}).catch(err=>{alert('Error updating actionDir');}); } }
 
 // Chat
 async function loadChat(){
@@ -270,12 +272,20 @@ function edgeColor(s){ s=(s||'').toLowerCase(); if(s==='running') return 'rgba(9
 const palette = document.getElementById('palette');
 const palInput = document.getElementById('palInput');
 const palList = document.getElementById('palList');
-const PRESETS=[
-  {label:'Plan: Distill ./documents (autorun)', run:()=>fetch('/process?autorun=true&project='+encodeURIComponent(currentProject),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:'Distill ./documents',options:{autorun:true}})}).then(loadAll)},
-  {label:'Scan current repo', run:()=>fetch('/control?project='+encodeURIComponent(currentProject),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:'Scan repository',actions:[{tool:'execute',args:{kind:'scan',input:JSON.stringify({root:"."})}}]})}).then(loadAll)},
-  {label:'Query: "security policy"', run:()=>fetch('/control?project='+encodeURIComponent(currentProject),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:'Query security policy',actions:[{tool:'execute',args:{kind:'query',input:JSON.stringify({q:'security policy',k:8})}}]})}).then(loadAll)},
-  {label:'Suggest fixes & features', run:()=>fetch('/control?project='+encodeURIComponent(currentProject),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:'Survey + suggest',actions:[{tool:'survey_env'},{tool:'suggest_fixes'},{tool:'suggest_features'}]})}).then(loadAll)},
-];
+let PRESETS = [];
+async function loadConfig(){
+  try{
+    const r=await fetch('/projects/'+encodeURIComponent(currentProject)+'/config');
+    const j=await r.json();
+    const actionDir=j.config?.actionDir||'.';
+    PRESETS=[
+      {label:`Plan: Distill ${actionDir}/documents (autorun)`, run:()=>fetch('/process?autorun=true&project='+encodeURIComponent(currentProject),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:`Distill ${actionDir}/documents`,options:{autorun:true}})}).then(loadAll)},
+      {label:'Scan current repo', run:()=>fetch('/control?project='+encodeURIComponent(currentProject),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:'Scan repository',actions:[{tool:'execute',args:{kind:'scan',input:JSON.stringify({root:"."})}}]})}).then(loadAll)},
+      {label:'Query: "security policy"', run:()=>fetch('/control?project='+encodeURIComponent(currentProject),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:'Query security policy',actions:[{tool:'execute',args:{kind:'query',input:JSON.stringify({q:'security policy',k:8})}}]})}).then(loadAll)},
+      {label:'Suggest fixes & features', run:()=>fetch('/control?project='+encodeURIComponent(currentProject),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:'Survey + suggest',actions:[{tool:'survey_env'},{tool:'suggest_fixes'},{tool:'suggest_features'}]})}).then(loadAll)},
+    ];
+  }catch(e){console.error(e);}
+}
 function openPalette(){ palette.style.display='flex'; palInput.value=''; renderPalList(PRESETS); palInput.focus(); }
 function closePalette(){ palette.style.display='none'; }
 palInput.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closePalette(); } if(e.key==='Enter'){ const first=palList.querySelector('.palItem'); if(first){ first.click(); } } });
@@ -320,6 +330,7 @@ if(chatInput){
     }
   });
 }
+document.getElementById('createProject').addEventListener('click',async()=>{ const projectId=prompt('New project name (letters, numbers, underscore, dash only):'); if(!projectId) return; if(!/^[a-zA-Z0-9_-]+$/.test(projectId)){alert('Invalid project name');return;} const actionDir=prompt('Action directory (leave empty for current directory "."):'); const payload={projectId}; if(actionDir !== null && actionDir.trim() !== '') payload.actionDir=actionDir.trim(); try{ await fetch('/projects',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)}); await loadProjects(); }catch(err){console.error(err);alert('Failed to create project');} });
 document.getElementById('pause').addEventListener('click',()=>fetch('/pause',{method:'POST'}).then(loadProjects));
 document.getElementById('resume').addEventListener('click',()=>fetch('/resume',{method:'POST'}).then(loadProjects));
 document.getElementById('exportChat').addEventListener('click',(e)=>{ e.preventDefault(); const url='/chat/export?project='+encodeURIComponent(currentProject); const a=document.createElement('a'); a.href=url; a.download='chat.'+currentProject+'.jsonl'; a.click(); });
@@ -352,7 +363,15 @@ document.getElementById('clearLogs').addEventListener('click',async()=>{
 // Watchbar
 async function pollWatch(){ try{ const r=await fetch('/watch/state'); const j=await r.json(); const s=j.state||{}; const wb=document.getElementById('watchbar'); if(!wb) return; if(s.active){ wb.style.display='inline-block'; const msg = s.step==='staging' ? `staging :${s.targetPort||''}` : (s.step==='switching' ? 'switching' : `restart in ${s.seconds||0}s`); wb.textContent=msg; } else { wb.style.display='none'; } }catch(e){} }
 
-function loadAll(){ loadProjects(); loadAgents(); loadLogs(); loadTerm(); loadChat(); loadPlan(); }
+async function loadAll(){
+  await loadConfig();
+  loadProjects();
+  loadAgents();
+  loadLogs();
+  loadTerm();
+  loadChat();
+  loadPlan();
+}
 
 loadAll();
 setInterval(pollWatch,1000);

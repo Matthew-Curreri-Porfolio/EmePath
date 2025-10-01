@@ -119,17 +119,35 @@ export class Brain {
     const sid = `s_${this._sessionSeq++}`;
     this.sessions.set(sid, { userId, projectId });
     // ensure project exists in DB; alias legacy workspace to project
+    const workspaceId = 'default';
+    let meta = null;
     try {
-      const p = db.createProject(userId, projectId, {
-        name: String(projectId),
-        description: 'auto-created by Brain',
-        active: 1,
-      });
-      this.projects.set(projectId, { userId, meta: p });
+      if (typeof db.getProjectByName === 'function') {
+        meta = db.getProjectByName(userId, workspaceId, String(projectId));
+      }
+      if (!meta) {
+        meta = db.createProject(userId, workspaceId, {
+          name: String(projectId),
+          description: 'auto-created by Brain',
+          active: true,
+          actionDir: '.',
+        });
+      } else if (!meta.active && typeof db.setProjectActive === 'function') {
+        meta = db.setProjectActive(userId, workspaceId, meta.id, true) || meta;
+      }
     } catch (e) {
-      // ignore unique conflicts
-      this.projects.set(projectId, { userId, meta: { name: String(projectId) } });
+      const msg = String(e?.message || e || '');
+      if (/UNIQUE constraint failed/i.test(msg)) {
+        try {
+          meta = typeof db.getProjectByName === 'function'
+            ? db.getProjectByName(userId, workspaceId, String(projectId))
+            : meta;
+        } catch {}
+      } else {
+        console.warn('[brain] createSession project sync failed:', msg);
+      }
     }
+    this.projects.set(projectId, { userId, meta: meta || { name: String(projectId) } });
     return sid;
   }
 

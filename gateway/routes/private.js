@@ -87,10 +87,15 @@ export function registerPrivate(app, deps, { memoryLimiter } = {}) {
       try {
         const { userId, workspaceId } = req.session;
         const body = req.body || {};
+        const actionDir =
+          typeof body.actionDir === 'string'
+            ? body.actionDir.trim() || '.'
+            : '.';
         const project = db.createProject(userId, workspaceId, {
           name: body.name,
           description: body.description,
           active: body.active,
+          actionDir,
         });
         res.json({ ok: true, project });
       } catch (e) {

@@ -105,6 +105,7 @@ export const ProjectCreateSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
   active: z.boolean().optional(),
+  actionDir: z.string().min(1).optional(),
 });
 
 export const ProjectSetActiveSchema = z.object({

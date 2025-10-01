@@ -7,9 +7,17 @@
 import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { modelRoots, manifestRoots, blobPathForDigest, resolvePython } from '../gateway/config/paths.js';
 import { getConfig } from '../gateway/config/index.js';
-import { run, get, all, setStackPid, getAllStackPids } from '../gateway/db/db.js';
+import {
+  run,
+  get,
+  all,
+  setStackPid,
+  getAllStackPids,
+  removeStackPidByPid,
+} from '../gateway/db/db.js';
 
 const ROOT = process.cwd();
 // llama.cpp binaries (temporarily unused; kept for future fallback)
@@ -307,12 +315,34 @@ async function pickModel() {
 }
 
 async function startProcess(cmd, args, opts = {}) {
-  const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], ...opts });
+  const { stackName = null, stackMeta = {}, ...spawnOpts } = opts || {};
+  const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], ...spawnOpts });
   let last = '';
   child.stdout.on('data', d => { last = d.toString(); process.stdout.write(`[${path.basename(cmd)}] ${last}`); });
   child.stderr.on('data', d => { last = d.toString(); process.stderr.write(`[${path.basename(cmd)}] ${last}`); });
   child.on('error', (e) => log({ event: 'proc_error', cmd, error: String(e && e.message || e) }));
-  setStackPid(path.basename(cmd), child.pid);
+  let stackId = null;
+  if (stackName) {
+    try {
+      const { meta: customMeta, ...restMeta } = stackMeta || {};
+      stackId = setStackPid(stackName, child.pid, {
+        command: cmd,
+        args,
+        cwd: spawnOpts.cwd || process.cwd(),
+        user: process.env.USER || process.env.LOGNAME || null,
+        meta: { hostname: os.hostname(), ...(customMeta || {}) },
+        ...restMeta,
+      });
+    } catch (e) {
+      log({ event: 'stack_pid_register_error', name: stackName, pid: child.pid, error: String(e && e.message || e) });
+    }
+  }
+  const cleanup = () => {
+    try {
+      if (stackId) removeStackPidByPid(child.pid);
+    } catch {}
+  };
+  child.once('exit', cleanup);
   return child;
 }
 
@@ -335,12 +365,29 @@ async function startLlamaServer(modelPath) {
   const base = `http://127.0.0.1:${LLAMACPP_PORT}`;
   if (await httpOk(`${base}/v1/models`)) {
     log({ event: 'reuse_llama_server', base });
+    try {
+      const pids = await getProcessesOnPorts([LLAMACPP_PORT]);
+      if (pids && pids[0]) {
+        setStackPid('llama-server', pids[0], {
+          role: 'service',
+          tag: 'llama',
+          port: LLAMACPP_PORT,
+          command: BIN_SERVER,
+          args,
+          cwd: ROOT,
+          meta: { reused: true, hostname: os.hostname() },
+        });
+      }
+    } catch {}
     return { child: null, base };
   }
   if (!isFile(BIN_SERVER)) throw new Error(`llama-server not found at ${BIN_SERVER}`);
   const args = ['-m', modelPath, '--port', String(LLAMACPP_PORT), '-c', '2048'];
   log({ event: 'start_llama_server', modelPath, args });
-  const child = startProcess(BIN_SERVER, args);
+  const child = startProcess(BIN_SERVER, args, {
+    stackName: 'llama-server',
+    stackMeta: { role: 'service', tag: 'llama', port: LLAMACPP_PORT },
+  });
   // wait for /v1/models
   for (let i = 0; i < 120; i++) {
     if (await httpOk(`${base}/v1/models`)) break;
@@ -372,6 +419,20 @@ async function startOllamaProxy(llamaBase) {
   const base = `http://127.0.0.1:${OLLAMA_PROXY_PORT}`;
   if (await httpOk(`${base}/api/version`)) {
     log({ event: 'reuse_ollama_proxy', base });
+    try {
+      const pids = await getProcessesOnPorts([OLLAMA_PROXY_PORT]);
+      if (pids && pids[0]) {
+        setStackPid('ollama-proxy', pids[0], {
+          role: 'service',
+          tag: 'ollama-proxy',
+          port: OLLAMA_PROXY_PORT,
+          command: py,
+          args,
+          cwd: ROOT,
+          meta: { reused: true, hostname: os.hostname() },
+        });
+      }
+    } catch {}
     return { child: null, base };
   }
 
@@ -386,7 +447,11 @@ async function startOllamaProxy(llamaBase) {
     '--blob-dir', path.join(process.env.HOME || '', '.ollama/blobs'),
   ];
 
-  const child = startProcess(py, args, { env: { ...process.env } });
+  const child = startProcess(py, args, {
+    env: { ...process.env },
+    stackName: 'ollama-proxy',
+    stackMeta: { role: 'service', tag: 'ollama-proxy', port: OLLAMA_PROXY_PORT },
+  });
 
   for (let i = 0; i < 20; i++) {
     if (await httpOk(`${base}/api/version`)) break;
@@ -516,12 +581,26 @@ async function startGateway(loraBase) {
     // best effort: discover PID and record
     try {
       const pids = await getProcessesOnPorts([GATEWAY_PORT]);
-      if (pids && pids[0]) setStackPid('gateway', pids[0]);
+      if (pids && pids[0]) {
+        setStackPid('gateway', pids[0], {
+          role: 'service',
+          tag: 'gateway',
+          port: GATEWAY_PORT,
+          command: 'node',
+          args: [entry],
+          cwd: ROOT,
+          meta: { reused: true, hostname: os.hostname() },
+        });
+      }
     } catch {}
     return { child: null, base };
   }
   log({ event: 'start_gateway', port: GATEWAY_PORT, loraModelPath: env.LORA_MODEL_PATH });
-  const child = startProcess('node', [entry], { env });
+  const child = startProcess('node', [entry], {
+    env,
+    stackName: 'gateway',
+    stackMeta: { role: 'service', tag: 'gateway', port: GATEWAY_PORT },
+  });
   for (let i = 0; i < 20; i++) { if (await httpOk(`${base}/health`)) break; await sleep(500); }
   return { child, base };
 }
@@ -536,13 +615,25 @@ async function startLoraServer() {
     // best effort: discover PID and record
     try {
       const pids = await getProcessesOnPorts([LORA_SERVER_PORT]);
-      if (pids && pids[0]) setStackPid('lora', pids[0]);
+      if (pids && pids[0]) {
+        setStackPid('lora', pids[0], {
+          role: 'service',
+          tag: 'lora-server',
+          port: LORA_SERVER_PORT,
+          command: py,
+          args: [script],
+          cwd: ROOT,
+          meta: { reused: true, hostname: os.hostname() },
+        });
+      }
     } catch {}
     return { child: null, base };
   }
   log({ event: 'start_lora_server', py, port: LORA_SERVER_PORT });
   const child = startProcess(py, [script], {
     env: { ...process.env, ...GEN_DEFAULTS, PORT: String(LORA_SERVER_PORT) },
+    stackName: 'lora',
+    stackMeta: { role: 'service', tag: 'lora-server', port: LORA_SERVER_PORT },
   });
   for (let i = 0; i < 60; i++) { if (await httpOk(`${base}/models`)) break; await sleep(1000); }
   return { child, base };
@@ -749,27 +840,33 @@ async function stopStack(force = false) {
     let killed = 0;
     if (hasPidFile) {
       try {
-        const pids = getAllStackPids();
-        for (const name in pids) {
-          const pid = pids[name];
-          if (pid) {
-            try {
-              process.kill(pid, 'SIGTERM');
-              console.log(`    - ${name} (pid: ${pid}) stopped.`);
-              killed++;
-            } catch (e) {
-              console.log(`    - ${name} (pid: ${pid}) not running: ${e.message}`);
-            }
+        const entries = getAllStackPids();
+        const seenNames = new Set();
+        for (const entry of entries) {
+          seenNames.add(entry.name);
+          if (!entry?.pid) continue;
+          try {
+            process.kill(entry.pid, 'SIGTERM');
+            console.log(`    - ${entry.name}${entry.port ? ` (:${entry.port})` : ''} (pid: ${entry.pid}) stopped.`);
+            killed++;
+            removeStackPidByPid(entry.pid);
+          } catch (e) {
+            console.log(`    - ${entry.name} (pid: ${entry.pid}) not running: ${e.message}`);
+            removeStackPidByPid(entry.pid);
           }
         }
         // If any expected pid is missing, attempt to discover and stop by port
-        if (!pids.gateway) {
+        if (!seenNames.has('gateway')) {
           const gp = await getProcessesOnPorts([GATEWAY_PORT]);
-          if (gp && gp[0]) { try { process.kill(gp[0], 'SIGTERM'); killed++; } catch {} }
+          if (gp && gp[0]) {
+            try { process.kill(gp[0], 'SIGTERM'); killed++; } catch {}
+          }
         }
-        if (!pids.lora) {
+        if (!seenNames.has('lora')) {
           const lp = await getProcessesOnPorts([LORA_SERVER_PORT]);
-          if (lp && lp[0]) { try { process.kill(lp[0], 'SIGTERM'); killed++; } catch {} }
+          if (lp && lp[0]) {
+            try { process.kill(lp[0], 'SIGTERM'); killed++; } catch {}
+          }
         }
       } catch (e) {
         console.log(`  - Error reading PID DB: ${e.message}`);
@@ -819,8 +916,9 @@ async function stopStack(force = false) {
       return;
     }
     console.log('Stopping stack gracefully...');
-    const pids = getAllStackPids();
-    const managerPid = pids.manager;
+    const entries = getAllStackPids();
+    const managerEntry = entries.find((e) => e.name === 'manager');
+    const managerPid = managerEntry?.pid;
 
     if (managerPid) {
       try {
@@ -829,29 +927,29 @@ async function stopStack(force = false) {
       } catch (e) {
         console.log(`  - Failed to kill process group ${managerPid}: ${e.message}.`);
         console.log('  - Falling back to killing processes individually.');
-        for (const name in pids) {
-          const pid = pids[name];
-          if (pid) {
-            try {
-              process.kill(pid, 'SIGTERM');
-              console.log(`    - ${name} (pid: ${pid}) stopped.`);
-            } catch (e) {
-              console.log(`    - ${name} (pid: ${pid}) already stopped or failed to stop: ${e.message}`);
-            }
+        for (const entry of entries) {
+          if (!entry?.pid) continue;
+          try {
+            process.kill(entry.pid, 'SIGTERM');
+            console.log(`    - ${entry.name} (pid: ${entry.pid}) stopped.`);
+          } catch (err) {
+            console.log(`    - ${entry.name} (pid: ${entry.pid}) already stopped or failed to stop: ${err.message}`);
+          } finally {
+            removeStackPidByPid(entry.pid);
           }
         }
       }
     } else {
       console.log('  - No manager PID found, killing processes individually.');
-      for (const name in pids) {
-        const pid = pids[name];
-        if (pid) {
-          try {
-            process.kill(pid, 'SIGTERM');
-            console.log(`    - ${name} (pid: ${pid}) stopped.`);
-          } catch (e) {
-            console.log(`    - ${name} (pid: ${pid}) already stopped or failed to stop: ${e.message}`);
-          }
+      for (const entry of entries) {
+        if (!entry?.pid) continue;
+        try {
+          process.kill(entry.pid, 'SIGTERM');
+          console.log(`    - ${entry.name} (pid: ${entry.pid}) stopped.`);
+        } catch (e) {
+          console.log(`    - ${entry.name} (pid: ${entry.pid}) already stopped or failed to stop: ${e.message}`);
+        } finally {
+          removeStackPidByPid(entry.pid);
         }
       }
     }
@@ -890,7 +988,15 @@ async function main() {
     process.exit(0);
   }
 
-  setStackPid('manager', process.pid);
+  setStackPid('manager', process.pid, {
+    role: 'manager',
+    tag: 'stack-manager',
+    command: process.argv[1] || process.execPath,
+    args: process.argv.slice(2),
+    cwd: process.cwd(),
+    user: process.env.USER || process.env.LOGNAME || null,
+    meta: { hostname: os.hostname() },
+  });
 
   try {
     // Optional preflight-only mode: --check
