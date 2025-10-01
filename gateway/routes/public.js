@@ -5,6 +5,21 @@ import { getModels } from '../usecases/models.js';
 
 export function registerPublic(app, deps) {
   const { log, getTimeoutMs } = deps;
+  // In-memory projects list for the public UI (no DB, no demo)
+  const projects = new Map();
+  function ensureProjectShape(projectId, actionDir = '.') {
+    const base = {
+      projectId,
+      status: { counts: { pending: 0, running: 0, done: 0 }, queue: { paused: false } },
+      config: { actionDir },
+      active: true,
+      project: null,
+    };
+    return base;
+  }
+  function listProjects() {
+    return Array.from(projects.values());
+  }
 
   // Liveness
   app.get('/health', (_req, res) =>
@@ -52,6 +67,59 @@ export function registerPublic(app, deps) {
   app.get('/models', async (_req, res) => {
     const payload = await getModels();
     res.json(payload);
+  });
+
+  // Projects (public UI, in-memory)
+  app.get('/projects', (_req, res) => {
+    res.json({ ok: true, projects: listProjects() });
+  });
+
+  app.post('/projects', (req, res) => {
+    const body = req.body || {};
+    const projectId = body.projectId || body.name;
+    if (!projectId || !/^[a-zA-Z0-9_-]+$/.test(projectId)) {
+      return res.status(400).json({ ok: false, error: 'invalid projectId' });
+    }
+    const actionDir = typeof body.actionDir === 'string' && body.actionDir.trim() !== '' ? body.actionDir.trim() : '.';
+    if (!projects.has(projectId)) {
+      projects.set(projectId, ensureProjectShape(projectId, actionDir));
+    } else {
+      const p = projects.get(projectId);
+      p.config.actionDir = actionDir || p.config.actionDir;
+    }
+    res.json({ ok: true, projectId, projects: listProjects() });
+  });
+
+  app.delete('/projects/:id', (req, res) => {
+    const projectId = req.params.id;
+    projects.delete(projectId);
+    res.json({ ok: true, removed: projectId, projects: listProjects() });
+  });
+
+  app.get('/projects/:id/config', (req, res) => {
+    const projectId = req.params.id;
+    const p = projects.get(projectId);
+    const actionDir = (p && p.config && p.config.actionDir) || '.';
+    res.json({ ok: true, config: { actionDir }, project: { id: 1, name: projectId, active: true } });
+  });
+
+  app.put('/projects/:id/config', (req, res) => {
+    const projectId = req.params.id;
+    const body = req.body || {};
+    const actionDir = typeof body.actionDir === 'string' && body.actionDir.trim() !== '' ? body.actionDir.trim() : '.';
+    if (!projects.has(projectId)) projects.set(projectId, ensureProjectShape(projectId, actionDir));
+    else projects.get(projectId).config.actionDir = actionDir;
+    res.json({ ok: true, config: { actionDir }, project: { id: 1, name: projectId, active: true } });
+  });
+
+  app.post('/pause', (_req, res) => {
+    projects.forEach(p => { p.status.queue.paused = true; });
+    res.json({ ok: true, paused: true });
+  });
+
+  app.post('/resume', (_req, res) => {
+    projects.forEach(p => { p.status.queue.paused = false; });
+    res.json({ ok: true, paused: false });
   });
 }
 

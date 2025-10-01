@@ -530,6 +530,67 @@ async function startServer(brain, { projectId, userId, argv }) {
     return { actionDir, record, memory: cfg.memory || {} };
   }
 
+  // Aggregate known projects and their status/config
+  async function listProjectsStatus() {
+    const brain = LAST_BRAIN;
+    const names = new Set();
+    const recordsByName = new Map();
+
+    try {
+      const rows = db.listProjects(userId, WORKSPACE_ID, {});
+      for (const rec of Array.isArray(rows) ? rows : []) {
+        const key = String(rec.name);
+        recordsByName.set(key, rec);
+        names.add(key);
+      }
+    } catch {}
+
+    if (brain) {
+      if (brain.agents) {
+        for (const a of brain.agents.values()) names.add(String(a.projectId));
+      }
+      if (brain.projects) {
+        for (const [pid] of brain.projects) names.add(String(pid));
+      }
+    }
+    // Ensure the current project appears in the list
+    names.add(String(projectId));
+
+    const ordered = Array.from(names)
+      .map((n) => String(n || '').trim())
+      .filter((n) => n.length > 0)
+      .sort((a, b) => a.localeCompare(b));
+
+    const results = [];
+    for (const pid of ordered) {
+      let record = recordsByName.get(pid) || getProjectRecord(pid);
+      const memCfg = projectConfigFromMemory(pid);
+      let actionDir = record?.actionDir || memCfg.actionDir || '.';
+      actionDir = sanitizeActionDir(actionDir);
+
+      if (!record) {
+        try {
+          record = ensureProjectRecord(pid, { actionDir });
+        } catch {}
+      } else if (record.actionDir !== actionDir) {
+        try {
+          record = ensureProjectRecord(pid, { actionDir, active: record.active });
+        } catch {}
+      }
+
+      const config = { ...memCfg, actionDir };
+      const status = gatherStatus(pid);
+      results.push({
+        projectId: pid,
+        status,
+        config,
+        active: record ? Boolean(record.active) : true,
+        project: record || null,
+      });
+    }
+    return results;
+  }
+
   try { ensureProjectRecord(projectId, { actionDir: '.' }); } catch {}
 
   // Load persisted agents (best-effort)
@@ -686,6 +747,123 @@ async function startServer(brain, { projectId, userId, argv }) {
   // Watcher state for UI countdown
   app.get('/watch/state', (_req, res) => {
     res.json({ ok: true, state: WATCH_STATE });
+  });
+
+  // Port monitor API
+  function normalizePortsFromDb(rows) {
+    const out = [];
+    const seen = new Set();
+    for (const r of Array.isArray(rows) ? rows : []) {
+      const port = r && r.port != null ? Number(r.port) : null;
+      const pid = r && r.pid != null ? Number(r.pid) : null;
+      if (!Number.isFinite(port) || !Number.isFinite(pid)) continue;
+      const key = `${port}:${pid}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      let cmd = toStr(r.command || '');
+      if (!cmd && Array.isArray(r.args) && r.args.length) cmd = toStr(r.args[0]);
+      out.push({
+        port,
+        user: toStr(r.user || ''),
+        command: cmd || 'node',
+        process: pid,
+      });
+    }
+    // Sort by port asc
+    out.sort((a, b) => a.port - b.port);
+    return out;
+  }
+
+  async function tryDiscoverPorts() {
+    // Prefer DB since we register instances there
+    try {
+      if (typeof db.getAllStackPids === 'function') {
+        const rows = db.getAllStackPids();
+        const list = normalizePortsFromDb(rows);
+        if (list.length) return list;
+      }
+    } catch {}
+
+    // Fallback: attempt OS probe (best-effort, may not exist in all envs)
+    try {
+      const { stdout } = await exec('ss -ltnp || netstat -ltnp');
+      const out = [];
+      const lines = String(stdout || '').split(/\r?\n/);
+      for (const ln of lines) {
+        // Example: LISTEN 0 4096 127.0.0.1:51100 ... users:(("node",pid=1234,fd=23))
+        const m = ln.match(/:\s*(\d{2,5})\b.*?pid=(\d+)/);
+        if (!m) continue;
+        const port = Number(m[1]);
+        const pid = Number(m[2]);
+        if (!Number.isFinite(port) || !Number.isFinite(pid)) continue;
+        out.push({ port, user: '', command: 'node', process: pid });
+      }
+      out.sort((a, b) => a.port - b.port);
+      return out;
+    } catch {}
+    return [];
+  }
+
+  app.get('/api/ports', async (_req, res) => {
+    try {
+      const ports = await tryDiscoverPorts();
+      res.json({ ok: true, ports });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
+    }
+  });
+
+  async function tryKillPid(pid) {
+    try {
+      if (!pid || !Number.isFinite(pid)) return false;
+      if (pid === process.pid) return false; // avoid self-termination
+      try { process.kill(pid, 'SIGTERM'); } catch {}
+      // small grace period, then SIGKILL if still alive
+      await new Promise((r) => setTimeout(r, 500));
+      try { process.kill(pid, 0); process.kill(pid, 'SIGKILL'); } catch {}
+      return true;
+    } catch { return false; }
+  }
+
+  app.post('/api/ports/:port/kill', async (req, res) => {
+    try {
+      const port = Number(req.params.port || '');
+      if (!Number.isFinite(port)) return res.status(400).json({ ok: false, error: 'invalid_port' });
+      let killed = 0;
+      let targets = [];
+      try {
+        if (typeof db.getAllStackPids === 'function') {
+          const rows = db.getAllStackPids();
+          targets = rows.filter((r) => Number(r.port) === port && Number.isFinite(r.pid));
+        }
+      } catch {}
+      if (!targets.length) {
+        // OS fallback: lsof/ss to find pid(s) — avoid sed backrefs to keep JS string clean
+        try {
+          const cmd = [
+            `lsof -nP -iTCP:${port} -sTCP:LISTEN -t`,
+            `ss -ltnp | grep :${port} | grep -oE 'pid=[0-9]+' | head -n1 | cut -d= -f2`,
+          ].join(' || ');
+          const { stdout } = await exec(cmd);
+          const pids = String(stdout || '')
+            .split(/\s+/)
+            .map((s) => Number(s))
+            .filter((n) => Number.isFinite(n));
+          targets = pids.map((pid) => ({ pid, port }));
+        } catch {}
+      }
+      for (const t of targets) {
+        const ok = await tryKillPid(Number(t.pid));
+        if (ok) killed++;
+        // best-effort cleanup from DB
+        try {
+          if (typeof db.removeStackPidByPid === 'function') db.removeStackPidByPid(Number(t.pid));
+        } catch {}
+      }
+      res.json({ ok: true, port, killed });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: toStr(e?.message || e) });
+    }
   });
 
   // Pause/resume control
@@ -1792,65 +1970,7 @@ function renderStatusText(status) {
   return lines.join('\n');
 }
 
-  async function listProjectsStatus() {
-    const brain = LAST_BRAIN;
-    const names = new Set();
-    const recordsByName = new Map();
-
-    try {
-      const rows = db.listProjects(userId, WORKSPACE_ID, {});
-      for (const rec of Array.isArray(rows) ? rows : []) {
-        const key = String(rec.name);
-        recordsByName.set(key, rec);
-        names.add(key);
-      }
-    } catch {}
-
-    if (brain) {
-      if (brain.agents) {
-        for (const a of brain.agents.values()) names.add(String(a.projectId));
-      }
-      if (brain.projects) {
-        for (const [pid] of brain.projects) names.add(String(pid));
-      }
-    }
-
-    names.add(String(projectId));
-
-    const ordered = Array.from(names)
-      .map((n) => String(n || '').trim())
-      .filter((n) => n.length > 0)
-      .sort((a, b) => a.localeCompare(b));
-
-    const results = [];
-    for (const pid of ordered) {
-      let record = recordsByName.get(pid) || getProjectRecord(pid);
-      const memCfg = projectConfigFromMemory(pid);
-      let actionDir = record?.actionDir || memCfg.actionDir || '.';
-      actionDir = sanitizeActionDir(actionDir);
-
-      if (!record) {
-        try {
-          record = ensureProjectRecord(pid, { actionDir });
-        } catch {}
-      } else if (record.actionDir !== actionDir) {
-        try {
-          record = ensureProjectRecord(pid, { actionDir, active: record.active });
-        } catch {}
-      }
-
-      const config = { ...memCfg, actionDir };
-      const status = gatherStatus(pid);
-      results.push({
-        projectId: pid,
-        status,
-        config,
-        active: record ? Boolean(record.active) : true,
-        project: record || null,
-      });
-    }
-    return results;
-  }
+  
 
 function agentsSnapshot(brain, projectId) {
   const list = [];
@@ -2854,10 +2974,24 @@ async function findAltPort(current, start, end) {
 
 async function waitHealth(port, timeoutMs = 10000) {
   const exp = Date.now() + timeoutMs;
+  const url = `http://127.0.0.1:${port}/health`;
   while (Date.now() < exp) {
     try {
-      const r = await fetch(`http://127.0.0.1:${port}/health`);
-      if (r.ok) return true;
+      if (typeof fetch === 'function') {
+        const r = await fetch(url);
+        if (r && r.ok) return true;
+      } else {
+        const ok = await new Promise((resolve) => {
+          const req = http.get(url, (res) => {
+            // drain response quickly; status 2xx = healthy
+            res.resume();
+            resolve(res.statusCode >= 200 && res.statusCode < 300);
+          });
+          req.on('error', () => resolve(false));
+          req.setTimeout(2000, () => { try { req.destroy(); } catch {} ; resolve(false); });
+        });
+        if (ok) return true;
+      }
     } catch {}
     await new Promise((r) => setTimeout(r, 500));
   }
